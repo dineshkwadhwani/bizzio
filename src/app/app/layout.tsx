@@ -30,7 +30,10 @@ export default async function EmployeeAppLayout({ children }: { children: React.
   if (toggles.submit_dcr) nav.push({ href: "/app/dcr", label: "DCR", icon: "PhoneCall" });
   if (toggles.raise_expense) nav.push({ href: "/app/expenses", label: "Expenses", icon: "ReceiptText" });
   if (employee?.is_manager) nav.push({ href: "/app/approvals", label: "Approvals", icon: "CheckSquare" });
-  if (employee?.is_finance) nav.push({ href: "/app/finance", label: "Finance", icon: "Landmark" });
+  if (employee?.is_finance) {
+    nav.push({ href: "/app/finance", label: "Finance", icon: "Landmark" });
+    nav.push({ href: "/app/finance/vendors", label: "Vendors", icon: "Landmark" });
+  }
   nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3" });
 
   return (

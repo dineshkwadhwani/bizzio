@@ -40,6 +40,7 @@ async function main() {
   if (existing) {
     const { error: updateAuthErr } = await admin.auth.admin.updateUserById(existing.id, {
       email,
+      password,
       phone,
       user_metadata: {
         full_name: name,
