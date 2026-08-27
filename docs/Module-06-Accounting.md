@@ -87,7 +87,7 @@ This is a three-stage flow — Sales Order only comes into existence once a cust
 - Numbering: `SO-YYYY-####`
 
 ### 5.3 Invoice
-- Generated **against an SO** — line items pulled from the SO (editable), GST breakup per line (§6), company logo
+- Can be generated **two ways**: (a) against an SO — line items pulled from the SO, editable, or (b) **standalone**, with the customer, line items, and GST entered directly on the Invoice (same free-text line-item pattern as PO/Quotation/SO). GST breakup per line (§6), company logo
 - **Review screen** → manual **"Send"** action → emailed to customer as PDF via Resend
 - **Payment via Receipt:** Finance Executive creates a **Receipt** against the Invoice (Payment Mode + reference — Cash/Cheque/Bank Transfer + Cheque Number/UTR) → the Invoice is **automatically marked Paid** the moment its Receipt is created. One Receipt per Invoice in v1 (no partial/split receipts).
 - **On Receipt creation:**

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { ProfilePhotoUpload } from "@/components/app/ProfilePhotoUpload";
 
 export default function ProfilePage() {
   const supabase = createClient();
@@ -62,7 +63,12 @@ export default function ProfilePage() {
           <label className="label">Emergency Contact Phone</label>
           <input className="input" value={form.emergency_contact_phone} onChange={(e) => setForm({ ...form, emergency_contact_phone: e.target.value })} />
         </div>
-        {/* TODO: profile photo + address upload to Supabase Storage bucket employee-photos */}
+
+        <div>
+          <label className="label">Profile Photo</label>
+          <ProfilePhotoUpload employeeId={employee.id} companyId={employee.company_id} currentUrl={employee.profile_photo_url} />
+        </div>
+
         <button className="btn-primary">Save Changes</button>
         {saved && <p className="text-sm text-green-600">Saved.</p>}
       </form>

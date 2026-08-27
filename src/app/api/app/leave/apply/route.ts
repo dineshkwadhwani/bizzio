@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
+import { notifyEmployeeById } from "@/lib/notifications";
 
 const Schema = z.object({
   leave_type_id: z.string().uuid(),
@@ -60,6 +61,14 @@ export async function POST(request: Request) {
     level: 1,
     approver_employee_id: employee.reporting_manager_id,
     status: "pending"
+  });
+
+  await notifyEmployeeById(employee.reporting_manager_id, {
+    type: "leave_request_submitted",
+    title: "Leave request submitted",
+    body: `A leave request for ${leaveRequest.start_date} to ${leaveRequest.end_date} is awaiting your approval.`,
+    entityType: "leave_request",
+    entityId: leaveRequest.id
   });
 
   return NextResponse.json({ leaveRequest });

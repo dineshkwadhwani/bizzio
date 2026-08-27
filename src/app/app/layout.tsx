@@ -33,6 +33,14 @@ export default async function EmployeeAppLayout({ children }: { children: React.
   if (employee?.is_finance) {
     nav.push({ href: "/app/finance", label: "Finance", icon: "Landmark" });
     nav.push({ href: "/app/finance/vendors", label: "Vendors", icon: "Landmark" });
+    nav.push({ href: "/app/finance/customers", label: "Customers", icon: "Landmark" });
+    nav.push({ href: "/app/finance/po", label: "POs", icon: "Landmark" });
+    nav.push({ href: "/app/finance/quotations", label: "Quotations", icon: "Landmark" });
+    nav.push({ href: "/app/finance/sales-orders", label: "Sales Orders", icon: "Landmark" });
+    nav.push({ href: "/app/finance/invoices", label: "Invoices", icon: "Landmark" });
+    nav.push({ href: "/app/finance/salary", label: "Salary", icon: "Landmark" });
+    nav.push({ href: "/app/finance/adhoc-entries", label: "Ad-hoc Entries", icon: "Landmark" });
+    nav.push({ href: "/app/finance/bank-import", label: "Bank Import", icon: "Landmark" });
   }
   nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3" });
 

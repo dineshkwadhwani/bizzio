@@ -66,6 +66,7 @@ export default function DcrPage() {
           <h1 className="text-2xl font-bold text-ink-900">Daily Call Report</h1>
           <p className="mt-1 text-sm text-ink-500">Customer and lead history by salesperson.</p>
         </div>
+        <Link href="/app/dcr/daily" className="btn-secondary">Daily View</Link>
       </div>
 
       <form onSubmit={addLead} className="card mt-6 flex flex-col gap-3 sm:flex-row">
@@ -83,7 +84,11 @@ export default function DcrPage() {
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
-      <div className="card mt-6 p-0">
+      <div className="card mt-6 p-0 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3 text-sm font-medium text-ink-700">
+          <span>My leads</span>
+          <Link href="/app/dcr/range" className="text-sm font-medium text-brand-600">Range View</Link>
+        </div>
         <div className="divide-y divide-ink-50">
           {leads.map((lead) => (
             <Link key={lead.id} href={`/app/dcr/${lead.id}`} className="flex items-center justify-between px-4 py-3 text-sm transition hover:bg-ink-50">

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { EmployeeDetailActions } from "@/components/admin/EmployeeDetailActions";
+import { UploadEmployeeDocument } from "@/components/admin/UploadEmployeeDocument";
 import { formatDate } from "@/lib/utils";
 
 export const revalidate = 0;
@@ -54,8 +55,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
 
       <div className="card">
         <h2 className="font-semibold text-ink-900">Documents</h2>
-        {/* TODO (Module 2 §4.4): full "Add Document" uploader to Supabase Storage
-            bucket employee-documents/{company_id}/{employee_id}/. */}
+        <UploadEmployeeDocument employeeId={params.id} companyId={employee.company_id} />
         <div className="mt-3 space-y-2">
           {documents?.map((d) => (
             <div key={d.id} className="flex items-center justify-between text-sm">

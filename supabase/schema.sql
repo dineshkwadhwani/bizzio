@@ -500,7 +500,7 @@ create table invoices (
   id              uuid primary key default gen_random_uuid(),
   company_id      uuid not null references companies(id) on delete cascade,
   customer_id     uuid not null references customers(id),
-  so_id           uuid not null references sales_orders(id),
+  so_id           uuid references sales_orders(id),
   invoice_number  text not null,
   status          invoice_status not null default 'draft',
   base_amount     numeric(14,2) not null default 0,
@@ -670,6 +670,184 @@ $$;
 create or replace function auth_employee_id() returns uuid
 language sql security definer stable as $$
   select id from public.employees where user_id = auth.uid();
+$$;
+
+create or replace function create_invoice_receipt_posting(
+  p_invoice_id uuid,
+  p_company_id uuid,
+  p_payment_mode payment_mode,
+  p_reference_number text,
+  p_received_by uuid
+) returns jsonb
+language plpgsql
+as $$
+declare
+  invoice_record record;
+  customer_record record;
+  sales_income_head record;
+  gst_payable_head record;
+  receipt_number text;
+  receipt_id uuid;
+  seq record;
+  next_number integer;
+  entry_year smallint;
+begin
+  select * into invoice_record
+  from invoices
+  where id = p_invoice_id and company_id = p_company_id
+  for update;
+
+  if not found then
+    raise exception 'Invoice not found in this company';
+  end if;
+
+  if exists (
+    select 1 from receipts where invoice_id = p_invoice_id and company_id = p_company_id
+  ) then
+    raise exception 'A receipt already exists for this invoice';
+  end if;
+
+  if invoice_record.status = 'paid' then
+    raise exception 'Invoice is already marked as paid';
+  end if;
+
+  select c.party_account_head_id into customer_record
+  from customers c
+  where c.id = invoice_record.customer_id and c.company_id = p_company_id;
+
+  if customer_record.party_account_head_id is null then
+    raise exception 'Customer party account is missing';
+  end if;
+
+  select * into sales_income_head
+  from account_heads
+  where company_id = p_company_id and name = 'Sales Income' and type = 'income' and is_active = true;
+
+  if not found then
+    raise exception 'Missing Sales Income account head for company';
+  end if;
+
+  select * into gst_payable_head
+  from account_heads
+  where company_id = p_company_id and name = 'GST Payable' and type = 'liability' and is_active = true;
+
+  if not found then
+    raise exception 'Missing GST Payable account head for company';
+  end if;
+
+  entry_year := extract(year from now())::smallint;
+
+  select * into seq
+  from document_sequences
+  where company_id = p_company_id and doc_type = 'receipt' and year = entry_year
+  for update;
+
+  if not found then
+    insert into document_sequences (company_id, doc_type, year, last_number)
+    values (p_company_id, 'receipt', entry_year, 1)
+    returning * into seq;
+    next_number := 1;
+  else
+    update document_sequences
+    set last_number = last_number + 1
+    where id = seq.id
+    returning * into seq;
+    next_number := seq.last_number;
+  end if;
+
+  receipt_number := 'RCT-' || entry_year::text || '-' || lpad(next_number::text, 4, '0');
+
+  insert into receipts (
+    invoice_id,
+    company_id,
+    receipt_number,
+    payment_mode,
+    reference_number,
+    amount,
+    received_by,
+    received_at
+  ) values (
+    p_invoice_id,
+    p_company_id,
+    receipt_number,
+    p_payment_mode,
+    p_reference_number,
+    invoice_record.total_amount,
+    p_received_by,
+    now()
+  ) returning id into receipt_id;
+
+  update invoices
+  set status = 'paid'
+  where id = p_invoice_id;
+
+  insert into ledger_entries (
+    company_id,
+    account_head_id,
+    entry_type,
+    amount,
+    is_accountable,
+    source_type,
+    source_id,
+    payment_mode,
+    reference_number,
+    description,
+    entry_date,
+    created_by,
+    created_at
+  ) values
+    (
+      p_company_id,
+      sales_income_head.id,
+      'credit',
+      invoice_record.base_amount,
+      true,
+      'invoice_receipt',
+      p_invoice_id,
+      p_payment_mode,
+      p_reference_number,
+      'Receipt for invoice ' || invoice_record.invoice_number || ' — Sales Income',
+      current_date,
+      p_received_by,
+      now()
+    ),
+    (
+      p_company_id,
+      gst_payable_head.id,
+      'credit',
+      invoice_record.gst_amount,
+      true,
+      'invoice_receipt',
+      p_invoice_id,
+      p_payment_mode,
+      p_reference_number,
+      'Receipt for invoice ' || invoice_record.invoice_number || ' — GST Payable',
+      current_date,
+      p_received_by,
+      now()
+    ),
+    (
+      p_company_id,
+      customer_record.party_account_head_id,
+      'credit',
+      invoice_record.total_amount,
+      true,
+      'invoice_receipt',
+      p_invoice_id,
+      p_payment_mode,
+      p_reference_number,
+      'Receipt for invoice ' || invoice_record.invoice_number || ' — Customer payment',
+      current_date,
+      p_received_by,
+      now()
+    );
+
+  return jsonb_build_object(
+    'receipt_id', receipt_id,
+    'receipt_number', receipt_number,
+    'invoice_status', 'paid'
+  );
+end;
 $$;
 
 -- Recursive: is `target` a subordinate (direct or indirect report) of `manager`?

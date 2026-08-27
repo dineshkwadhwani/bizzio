@@ -40,7 +40,7 @@ export default async function VendorsPage() {
       <div className="card mt-6 p-0">
         <div className="divide-y divide-ink-50">
           {vendors?.map((vendor: any) => (
-            <div key={vendor.id} className="flex items-center justify-between px-4 py-3 text-sm">
+            <Link key={vendor.id} href={`/app/finance/vendors/${vendor.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
               <div>
                 <p className="font-medium text-ink-800">{vendor.name}</p>
                 <p className="text-ink-400">{vendor.contact_person || "No contact person"} · {vendor.contact_phone || "No phone"}</p>
@@ -48,7 +48,7 @@ export default async function VendorsPage() {
               <span className={`badge ${vendor.is_active ? "bg-green-50 text-green-700" : "bg-ink-100 text-ink-500"}`}>
                 {vendor.is_active ? "Active" : "Inactive"}
               </span>
-            </div>
+            </Link>
           ))}
           {!vendors?.length && <p className="px-4 py-8 text-center text-ink-400">No vendors added yet.</p>}
         </div>

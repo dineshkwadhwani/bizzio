@@ -32,11 +32,16 @@ export default function DailyDcrPage() {
 
   return (
     <div className="max-w-4xl">
-      <h1 className="text-2xl font-bold text-ink-900">Daily DCR View</h1>
-      <p className="mt-1 text-sm text-ink-500">All interactions logged today across your leads.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-ink-900">Daily DCR View</h1>
+          <p className="mt-1 text-sm text-ink-500">All interactions logged today across your leads.</p>
+        </div>
+        <Link href="/app/dcr" className="btn-secondary">Back to Leads</Link>
+      </div>
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
 
-      <div className="card mt-6 p-0">
+      <div className="card mt-6 p-0 overflow-hidden">
         <div className="divide-y divide-ink-50">
           {rows.map((item) => (
             <div key={item.id} className="px-4 py-3 text-sm">

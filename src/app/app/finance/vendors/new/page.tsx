@@ -31,7 +31,7 @@ export default function NewVendorPage() {
     setError(null);
     setLoading(true);
 
-    const res = await fetch("/api/app/vendors", {
+    const res = await fetch("/api/app/finance/vendors", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form)

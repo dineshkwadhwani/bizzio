@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth-guard";
+import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const VendorSchema = z.object({
@@ -17,62 +17,43 @@ const VendorSchema = z.object({
 });
 
 export async function GET() {
-  let guard;
   try {
-    guard = await requireRole("employee");
-  } catch (res) {
-    return res as Response;
+    const guard = await requireFinance();
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("vendors")
+      .select("*")
+      .eq("company_id", guard.employee.company_id)
+      .order("created_at", { ascending: false });
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(data ?? []);
+  } catch (error) {
+    return error as Response;
   }
-
-  const supabase = createClient();
-  const { data: employee } = await supabase
-    .from("employees")
-    .select("company_id, is_finance")
-    .eq("user_id", guard.user.id)
-    .single();
-
-  if (!employee || !employee.is_finance) {
-    return NextResponse.json({ error: "Finance access required" }, { status: 403 });
-  }
-
-  const { data, error } = await supabase
-    .from("vendors")
-    .select("*")
-    .eq("company_id", employee.company_id)
-    .order("created_at", { ascending: false });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data ?? []);
 }
 
 export async function POST(request: Request) {
-  let guard;
   try {
-    guard = await requireRole("employee");
-  } catch (res) {
-    return res as Response;
+    await requireFinance();
+  } catch (error) {
+    return error as Response;
   }
 
-  const parsed = VendorSchema.safeParse(await request.json());
+  const body = await request.json();
+  const parsed = VendorSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const guard = await requireFinance();
   const supabase = createClient();
-  const { data: employee } = await supabase
-    .from("employees")
-    .select("company_id, is_finance")
-    .eq("user_id", guard.user.id)
-    .single();
 
-  if (!employee || !employee.is_finance) {
-    return NextResponse.json({ error: "Finance access required" }, { status: 403 });
-  }
-
+  // The DB trigger on vendors creates the party account head automatically.
   const { data: vendor, error } = await supabase
     .from("vendors")
     .insert({
-      company_id: employee.company_id,
+      company_id: guard.employee.company_id,
       name: parsed.data.name.trim(),
       gstin: parsed.data.gstin?.trim() || null,
       address: parsed.data.address?.trim() || null,

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CompanyActions } from "@/components/superadmin/CompanyActions";
@@ -73,13 +74,15 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
       </div>
 
       <div className="card">
-        <h2 className="font-semibold text-ink-900">Feature Flags &amp; "Manage as Admin"</h2>
-        <p className="mt-2 text-sm text-ink-500">
-          TODO (Module 7 §2.2, §2.4): per-company feature flag overrides UI, and a
-          "Manage as Admin" entry point that reuses the <code>/admin/*</code> route
-          tree with this company's id in context, logging every action to{" "}
-          <code>audit_logs</code>.
-        </p>
+        <h2 className="mb-3 font-semibold text-ink-900">Feature Flags &amp; "Manage as Admin"</h2>
+        <div className="space-y-3">
+          <p className="text-sm text-ink-500">
+            Per-company feature flags are kept on the plan and company override model; this page provides the support entry point for the company admin experience.
+          </p>
+          <Link href={`/superadmin/companies/${company.id}/manage`} className="btn-primary inline-flex">
+            Manage as Admin
+          </Link>
+        </div>
       </div>
     </div>
   );

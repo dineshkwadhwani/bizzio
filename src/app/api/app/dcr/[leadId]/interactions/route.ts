@@ -4,6 +4,8 @@ import { requireRole } from "@/lib/auth-guard";
 import { effectiveToggles } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const interactionType = ["personal", "phone", "chat"] as const;
 const leadStatus = ["new", "contacted", "interested", "negotiation", "converted", "lost"] as const;
 

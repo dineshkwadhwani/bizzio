@@ -34,8 +34,13 @@ export default function DcrRangePage() {
 
   return (
     <div className="max-w-4xl">
-      <h1 className="text-2xl font-bold text-ink-900">DCR Date Range View</h1>
-      <p className="mt-1 text-sm text-ink-500">Review all lead interactions in a selected date range.</p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-ink-900">DCR Date Range View</h1>
+          <p className="mt-1 text-sm text-ink-500">Review all lead interactions in a selected date range.</p>
+        </div>
+        <Link href="/app/dcr" className="btn-secondary">Back to Leads</Link>
+      </div>
 
       <div className="card mt-6 grid gap-4 md:grid-cols-2">
         <label className="space-y-2">

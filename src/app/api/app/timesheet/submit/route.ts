@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { effectiveToggles } from "@/lib/permissions";
+import { notifyEmployeeById } from "@/lib/notifications";
 
 export async function POST() {
   let guard;
@@ -57,6 +58,13 @@ export async function POST() {
         approver_employee_id: employee.reporting_manager_id,
         status: "pending"
       });
+      await notifyEmployeeById(employee.reporting_manager_id, {
+        type: "timesheet_submitted",
+        title: "Timesheet submitted",
+        body: `Your team member submitted a timesheet for ${month}/${year}.`,
+        entityType: "timesheet",
+        entityId: insertedTimesheet.id
+      });
     }
 
     return NextResponse.json({ timesheet: insertedTimesheet, approvalCreated: !!employee.reporting_manager_id });
@@ -83,6 +91,13 @@ export async function POST() {
       level: 1,
       approver_employee_id: employee.reporting_manager_id,
       status: "pending"
+    });
+    await notifyEmployeeById(employee.reporting_manager_id, {
+      type: "timesheet_submitted",
+      title: "Timesheet submitted",
+      body: `Your team member submitted a timesheet for ${month}/${year}.`,
+      entityType: "timesheet",
+      entityId: updatedTimesheet.id
     });
   }
 

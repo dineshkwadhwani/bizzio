@@ -4,6 +4,8 @@ import { requireRole } from "@/lib/auth-guard";
 import { effectiveToggles } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const leadStatus = ["new", "contacted", "interested", "negotiation", "converted", "lost"] as const;
 
 const CreateLeadSchema = z.object({
@@ -12,12 +14,15 @@ const CreateLeadSchema = z.object({
   next_followup_date: z.string().optional().nullable()
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await requireRole("employee");
   } catch (error) {
     return error as Response;
   }
+
+  const url = new URL(request.url);
+  const day = url.searchParams.get("day");
 
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -36,6 +41,21 @@ export async function GET() {
     (employee as any)?.permission_overrides
   );
   if (!toggles.submit_dcr) return NextResponse.json({ error: "DCR access is not enabled for this employee" }, { status: 403 });
+
+  if (day) {
+    const start = new Date(`${day}T00:00:00.000Z`).toISOString();
+    const end = new Date(`${day}T23:59:59.999Z`).toISOString();
+
+    const { data: interactions } = await supabase
+      .from("dcr_interactions")
+      .select("*, dcr_leads(customer_name)")
+      .eq("employee_id", employee.id)
+      .gte("interaction_at", start)
+      .lte("interaction_at", end)
+      .order("interaction_at", { ascending: false });
+
+    return NextResponse.json({ interactions: interactions ?? [] });
+  }
 
   const { data: leads } = await supabase
     .from("dcr_leads")

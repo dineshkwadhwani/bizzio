@@ -4,6 +4,8 @@ import { requireRole } from "@/lib/auth-guard";
 import { effectiveToggles } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const leadStatus = ["new", "contacted", "interested", "negotiation", "converted", "lost"] as const;
 
 const UpdateLeadSchema = z.object({

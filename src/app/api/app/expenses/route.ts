@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
+import { notifyEmployeeById } from "@/lib/notifications";
+import { formatINR } from "@/lib/utils";
 
 const LineItem = z.object({
   account_head_id: z.string().uuid(),
@@ -65,6 +67,22 @@ export async function POST(request: Request) {
     approver_employee_id: employee.reporting_manager_id,
     status: "pending"
   });
+
+  const { data: manager } = await supabase
+    .from("employees")
+    .select("id, user_id")
+    .eq("id", employee.reporting_manager_id)
+    .single();
+
+  if (manager?.user_id) {
+    await notifyEmployeeById(employee.reporting_manager_id, {
+      type: "expense_claim_submitted",
+      title: "Expense claim submitted",
+      body: `An expense claim for ${formatINR(totalAmount)} is awaiting your approval.`,
+      entityType: "expense_claim",
+      entityId: claim.id
+    });
+  }
 
   return NextResponse.json({ claim });
 }
