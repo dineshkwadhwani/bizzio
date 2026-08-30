@@ -25,24 +25,24 @@ export async function POST(request: Request) {
   }
 
   const supabase = createAdminClient();
+  const normalizedEmail = parsed.data.contact_email.trim();
 
-  const { data: existingPending } = await supabase
+  const { data: existingCompany } = await supabase
     .from("companies")
-    .select("id")
-    .ilike("contact_email", parsed.data.contact_email)
-    .in("status", ["pending", "payment_pending"])
+    .select("id, status")
+    .ilike("contact_email", normalizedEmail)
     .maybeSingle();
 
-  if (existingPending) {
+  if (existingCompany) {
     return NextResponse.json(
-      { error: "An application with this email is already under review." },
+      { error: "A company with this email already exists." },
       { status: 409 }
     );
   }
 
   const { data: company, error } = await supabase
     .from("companies")
-    .insert({ ...parsed.data, status: "pending" })
+    .insert({ ...parsed.data, contact_email: normalizedEmail, status: "pending" })
     .select()
     .single();
 

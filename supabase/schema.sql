@@ -79,7 +79,7 @@ create table companies (
   deactivated_at              timestamptz,
   created_at                  timestamptz not null default now()
 );
-create unique index uq_companies_contact_email_pending on companies (lower(contact_email)) where status in ('pending','payment_pending');
+create unique index uq_companies_contact_email on companies (lower(contact_email));
 
 create table company_feature_overrides (
   company_id  uuid not null references companies(id) on delete cascade,
