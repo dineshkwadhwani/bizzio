@@ -37,9 +37,12 @@ export default function ForgotPasswordPage() {
         </Link>
 
         {submitted ? (
-          <p className="mt-6 text-sm text-ink-600">
-            If an account exists with this email, a password reset link has been sent.
-          </p>
+          <div className="mt-6 space-y-3 text-sm text-ink-600">
+            <p>If an account exists with this email, a password reset link has been sent.</p>
+            <Link href="/reset-password" className="font-medium text-brand-600 hover:underline">
+              Change it with your current password
+            </Link>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="mt-6 space-y-4 text-left">
             <p className="text-sm text-ink-500">

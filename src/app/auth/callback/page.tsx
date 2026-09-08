@@ -16,7 +16,7 @@ export default function AuthCallbackPage() {
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
-          router.replace(`/forgot-password?error=expired`);
+          router.replace("/reset-password");
           return;
         }
       }
