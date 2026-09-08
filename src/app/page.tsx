@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
+import { RecoveryRedirect } from "@/components/auth/RecoveryRedirect";
 
 const FEATURES = [
   {
@@ -49,6 +50,7 @@ const STEPS = [
 export default function LandingPage() {
   return (
     <>
+      <RecoveryRedirect />
       <SiteHeader />
       <main>
         {/* Hero */}

@@ -10,7 +10,6 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const supabase = createClient();
     const searchParams = new URLSearchParams(window.location.search);
-    const next = searchParams.get("next") || "/app/dashboard";
     const code = searchParams.get("code");
 
     async function completeAuth() {
@@ -21,7 +20,7 @@ export default function AuthCallbackPage() {
           return;
         }
       }
-      router.replace(next);
+      router.replace("/reset-password");
     }
 
     completeAuth();
