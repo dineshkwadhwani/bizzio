@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -13,10 +13,54 @@ export default function ResetPasswordPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    let mounted = true;
+
+    async function prepareRecoverySession() {
+      const code = new URLSearchParams(window.location.search).get("code");
+      if (code) {
+        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+        if (exchangeError) {
+          const { data: recovered } = await supabase.auth.getSession();
+          if (!recovered.session) {
+            if (mounted) setError("This reset link has expired. Please request a new one.");
+            return;
+          }
+        }
+      }
+
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (!mounted) return;
+      if (sessionError || !data.session) {
+        setError("This reset link is invalid or has expired. Please request a new one.");
+        return;
+      }
+      setReady(true);
+    }
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (mounted && (event === "PASSWORD_RECOVERY" || session)) setReady(true);
+    });
+
+    prepareRecoverySession();
+
+    return () => {
+      mounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!ready) {
+      setError("Please open the password reset link from your email again.");
+      return;
+    }
 
     if (password.length < 8) {
       setError("Password must be at least 8 characters.");
@@ -57,6 +101,7 @@ export default function ResetPasswordPage() {
               type="password"
               required
               className="input"
+              disabled={!ready || loading}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -68,12 +113,16 @@ export default function ResetPasswordPage() {
               type="password"
               required
               className="input"
+              disabled={!ready || loading}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
-          <button type="submit" disabled={loading} className="btn-primary w-full">
+          {!ready && !error && (
+            <p className="text-sm text-ink-500">Validating your reset link…</p>
+          )}
+          <button type="submit" disabled={!ready || loading} className="btn-primary w-full">
             {loading ? "Saving…" : "Set new password"}
           </button>
         </form>

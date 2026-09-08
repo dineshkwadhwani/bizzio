@@ -4,7 +4,7 @@ import { updateSession } from "@/lib/supabase/middleware";
 // Public routes that never require auth.
 const PUBLIC_PREFIXES = [
   "/", "/pricing", "/about-us", "/contact-us", "/terms", "/privacy",
-  "/login", "/forgot-password", "/reset-password", "/register", "/health",
+  "/login", "/forgot-password", "/reset-password", "/auth/callback", "/register", "/health",
   "/api/health", "/api/webhooks"
 ];
 

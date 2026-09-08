@@ -8,18 +8,24 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     setLoading(true);
     const supabase = createClient();
 
     // Supabase itself does not reveal whether the email exists, and neither do we.
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/reset-password`
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`
     });
 
     setLoading(false);
+    if (resetError) {
+      setError("We could not send the reset email. Please try again shortly.");
+      return;
+    }
     setSubmitted(true);
   }
 
@@ -53,6 +59,7 @@ export default function ForgotPasswordPage() {
             <button type="submit" disabled={loading} className="btn-primary w-full">
               {loading ? "Sending…" : "Send reset link"}
             </button>
+            {error && <p className="text-sm text-red-600">{error}</p>}
           </form>
         )}
 
