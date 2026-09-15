@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import Script from "next/script";
 import { createClient } from "@/lib/supabase/client";
 import { formatINR } from "@/lib/utils";
 
@@ -29,6 +30,8 @@ function RegisterForm() {
   const [selectedPlan, setSelectedPlan] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isProductionSite, setIsProductionSite] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const [form, setForm] = useState({
     contact_email: "",
@@ -40,6 +43,9 @@ function RegisterForm() {
   });
 
   useEffect(() => {
+    const hostname = window.location.hostname;
+    setIsProductionSite(hostname === "bizzio.online" || hostname === "www.bizzio.online");
+
     const supabase = createClient();
     supabase
       .from("subscription_plans")
@@ -69,11 +75,24 @@ function RegisterForm() {
       return;
     }
 
+    const turnstileToken = formRef.current?.querySelector<HTMLInputElement>(
+      'input[name="cf-turnstile-response"]'
+    )?.value;
+
+    if (isProductionSite && !turnstileToken) {
+      setError("Please complete the security verification.");
+      return;
+    }
+
     setLoading(true);
     const res = await fetch("/api/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, plan_id: selectedPlan })
+      body: JSON.stringify({
+        ...form,
+        plan_id: selectedPlan,
+        ...(turnstileToken ? { turnstile_token: turnstileToken } : {})
+      })
     });
     const json = await res.json();
     setLoading(false);
@@ -96,7 +115,7 @@ function RegisterForm() {
           <p className="mt-2 text-sm text-ink-500">Register your company</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="label">Registered Email Address</label>
             <input
@@ -174,6 +193,19 @@ function RegisterForm() {
               ))}
             </div>
           </div>
+
+          {isProductionSite && (
+            <>
+              <Script
+                src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+                strategy="afterInteractive"
+              />
+              <div
+                className="cf-turnstile"
+                data-sitekey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+              />
+            </>
+          )}
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
