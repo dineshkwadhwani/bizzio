@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { BackButton } from "@/components/layout/BackButton";
 
 type Option = { id: string; name: string };
 
@@ -62,6 +63,7 @@ export default function NewEmployeePage() {
 
   return (
     <div className="mx-auto max-w-2xl">
+      <BackButton href="/admin/employees" label="Back to Employees" />
       <h1 className="text-2xl font-bold text-ink-900">Add Employee</h1>
 
       <form onSubmit={handleSubmit} className="card mt-6 space-y-5">

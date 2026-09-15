@@ -19,8 +19,9 @@ create type company_status      as enum ('pending', 'payment_pending', 'active',
 create type payment_status      as enum ('created', 'success', 'failed');
 create type finance_scope       as enum ('department', 'company');
 create type employee_status     as enum ('active', 'left');
-create type document_type       as enum ('aadhar', 'pan', 'experience_letter', 'offer_letter', 'other');
+create type document_type       as enum ('aadhar', 'pan', 'address_proof', 'education_document', 'employment_document', 'experience_letter', 'offer_letter', 'other');
 create type attendance_status   as enum ('present', 'absent', 'half_day', 'on_leave', 'holiday');
+create type attendance_work_location as enum ('designated_office', 'home', 'other_location');
 create type half_day_session    as enum ('first_half', 'second_half');
 create type leave_request_status as enum ('submitted', 'pending_level2', 'approved', 'rejected', 'cancellation_pending', 'cancelled');
 create type approval_entity     as enum ('leave_request', 'timesheet', 'expense_claim', 'leave_cancellation');
@@ -229,6 +230,7 @@ create table attendance (
   company_id         uuid not null references companies(id) on delete cascade,
   date               date not null,
   status             attendance_status not null default 'present',
+  work_location      attendance_work_location,
   check_in_time      timestamptz,
   check_out_time     timestamptz,
   check_in_comment   text,
@@ -279,13 +281,16 @@ create table approval_steps (
   entity_type          approval_entity not null,
   entity_id            uuid not null,
   level                smallint not null,
-  approver_employee_id uuid not null references employees(id),
+  approver_employee_id uuid references employees(id),
+  approver_user_id     uuid references users(id),
   status               approval_status not null default 'pending',
   comment              text,
   decided_at           timestamptz,
   created_at           timestamptz not null default now()
+  ,constraint approval_steps_approver_check check (approver_employee_id is not null or approver_user_id is not null)
 );
 create index idx_approval_entity on approval_steps(entity_type, entity_id);
+create index idx_approval_approver_user on approval_steps(approver_user_id, status);
 
 -- ----------------------------------------------------------------------------
 -- 5. TIMESHEET & DCR  (Module 4)
@@ -1086,4 +1091,3 @@ begin
 end $$;
 
 -- End of schema.sql
-

@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ProfilePhotoUpload } from "@/components/app/ProfilePhotoUpload";
+import { EmployeeDocumentUpload } from "@/components/app/EmployeeDocumentUpload";
 
 export default function ProfilePage() {
   const supabase = createClient();
   const [employee, setEmployee] = useState<any>(null);
+  const [documents, setDocuments] = useState<any[]>([]);
   const [form, setForm] = useState({ phone: "", emergency_contact_name: "", emergency_contact_phone: "" });
   const [saved, setSaved] = useState(false);
 
@@ -15,6 +17,13 @@ export default function ProfilePage() {
       const { data: auth } = await supabase.auth.getUser();
       const { data } = await supabase.from("employees").select("*").eq("user_id", auth.user?.id).single();
       setEmployee(data);
+      if (data) {
+        const { data: employeeDocuments } = await supabase
+          .from("employee_documents")
+          .select("document_type, file_url")
+          .eq("employee_id", data.id);
+        setDocuments(employeeDocuments ?? []);
+      }
       if (data) {
         setForm({
           phone: data.phone ?? "",
@@ -72,6 +81,8 @@ export default function ProfilePage() {
         <button className="btn-primary">Save Changes</button>
         {saved && <p className="text-sm text-green-600">Saved.</p>}
       </form>
+
+      <EmployeeDocumentUpload employeeId={employee.id} companyId={employee.company_id} documents={documents} />
     </div>
   );
 }

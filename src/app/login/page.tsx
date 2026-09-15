@@ -26,36 +26,54 @@ function LoginForm() {
     setError(null);
     setLoading(true);
 
-    const supabase = createClient();
-    const { data, error: signInError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    try {
+      const supabase = createClient();
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      });
 
-    if (signInError || !data.user) {
-      // Never reveal whether the email exists (Module 1 §2.2)
-      setError("Invalid email or password.");
+      if (signInError || !data.user) {
+        // Never reveal whether the email exists (Module 1 §2.2)
+        setError("Invalid email or password.");
+        return;
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("users")
+        .select("role, status")
+        .eq("id", data.user.id)
+        .single();
+
+      if (profileError || !profile) {
+        setError("Your account profile could not be loaded. Please contact an administrator.");
+        await supabase.auth.signOut();
+        return;
+      }
+      if (profile.status === "disabled") {
+        setError("This account has been disabled. Contact your administrator.");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      const redirectTo = params.get("redirectTo");
+      if (data.user.user_metadata?.must_change_password === true) {
+        router.push("/reset-password?first_login=1");
+      } else if (redirectTo) {
+        router.push(redirectTo);
+      } else if (profile.role === "superadmin") {
+        router.push("/superadmin/dashboard");
+      } else if (profile.role === "company_admin") {
+        router.push("/admin/dashboard");
+      } else {
+        router.push("/app/dashboard");
+      }
+    } catch (loginError) {
+      console.error("Login failed:", loginError);
+      setError("Unable to connect to the login service. Please try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const { data: profile } = await supabase
-      .from("users")
-      .select("role")
-      .eq("id", data.user.id)
-      .single();
-
-    setLoading(false);
-
-    const redirectTo = params.get("redirectTo");
-    if (data.user.user_metadata?.must_change_password === true) {
-      return router.push("/reset-password?first_login=1");
-    }
-    if (redirectTo) return router.push(redirectTo);
-
-    if (profile?.role === "superadmin") return router.push("/superadmin/dashboard");
-    if (profile?.role === "company_admin") return router.push("/admin/dashboard");
-    return router.push("/app/dashboard");
   }
 
   return (

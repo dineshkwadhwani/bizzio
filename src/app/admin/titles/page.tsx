@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { BackButton } from "@/components/layout/BackButton";
 
 export default function TitlesPage() {
   const supabase = createClient();
@@ -31,10 +32,11 @@ export default function TitlesPage() {
 
   return (
     <div>
+      <BackButton href="/admin/employees" label="Back to Employees" />
       <h1 className="text-2xl font-bold text-ink-900">Titles / Designations</h1>
-      <form onSubmit={add} className="mt-4 flex gap-3">
-        <input className="input max-w-xs" placeholder="e.g. Software Engineer" value={newName} onChange={(e) => setNewName(e.target.value)} />
-        <button className="btn-primary">Add</button>
+      <form onSubmit={add} className="card mt-4 flex flex-col gap-3 sm:flex-row">
+        <input className="input" placeholder="e.g. Software Engineer" value={newName} onChange={(e) => setNewName(e.target.value)} />
+        <button className="btn-primary sm:w-auto">Add</button>
       </form>
       <div className="card mt-6 divide-y divide-ink-50 p-0">
         {titles.map((t) => (

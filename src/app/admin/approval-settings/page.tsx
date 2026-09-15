@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { BackButton } from "@/components/layout/BackButton";
 
 export default function ApprovalSettingsPage() {
   const supabase = createClient();
@@ -34,17 +35,18 @@ export default function ApprovalSettingsPage() {
 
   return (
     <div className="max-w-lg">
+      <BackButton href="/admin/employees" label="Back to Employees" />
       <h1 className="text-2xl font-bold text-ink-900">Approval Settings</h1>
       <div className="card mt-6">
         <label className="label">Approval Hierarchy Depth (Leave &amp; Timesheet)</label>
         <p className="mb-3 text-sm text-ink-500">
           Expense Reimbursement uses its own per-category depth instead — see Expense Categories.
         </p>
-        <div className="flex gap-3">
-          <button onClick={() => save(1)} className={depth === 1 ? "btn-primary" : "btn-secondary"}>
+        <div className="grid grid-cols-1 gap-3">
+          <button onClick={() => save(1)} className={`w-full justify-center text-center leading-tight ${depth === 1 ? "btn-primary" : "btn-secondary"}`}>
             1 — Manager only
           </button>
-          <button onClick={() => save(2)} className={depth === 2 ? "btn-primary" : "btn-secondary"}>
+          <button onClick={() => save(2)} className={`w-full justify-center text-center leading-tight ${depth === 2 ? "btn-primary" : "btn-secondary"}`}>
             2 — Manager + Manager&apos;s Manager
           </button>
         </div>

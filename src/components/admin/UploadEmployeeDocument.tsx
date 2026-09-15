@@ -13,7 +13,7 @@ export function UploadEmployeeDocument({
 }) {
   const supabase = createClient();
   const [uploading, setUploading] = useState(false);
-  const [documentType, setDocumentType] = useState("identity_proof");
+  const [documentType, setDocumentType] = useState("aadhar");
   const [message, setMessage] = useState<string | null>(null);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -32,12 +32,17 @@ export function UploadEmployeeDocument({
     }
 
     const { data: publicUrl } = supabase.storage.from("employee-documents").getPublicUrl(uploaded.path);
+    const { data: currentEmployee } = await supabase
+      .from("employees")
+      .select("id")
+      .eq("user_id", (await supabase.auth.getUser()).data.user?.id ?? "")
+      .maybeSingle();
     const { error: insertError } = await supabase.from("employee_documents").insert({
       employee_id: employeeId,
       company_id: companyId,
       document_type: documentType,
       file_url: publicUrl.publicUrl,
-      uploaded_by: (await supabase.auth.getUser()).data.user?.id ?? null
+      uploaded_by: currentEmployee?.id ?? null
     });
 
     if (insertError) {
@@ -55,10 +60,11 @@ export function UploadEmployeeDocument({
     <div className="mt-3 space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <select className="input w-auto min-w-[180px]" value={documentType} onChange={(e) => setDocumentType(e.target.value)}>
-          <option value="identity_proof">Identity Proof</option>
+          <option value="aadhar">Aadhaar Card (Mandatory)</option>
+          <option value="pan">PAN Card (Mandatory)</option>
           <option value="address_proof">Address Proof</option>
-          <option value="education_certificate">Education Certificate</option>
-          <option value="other">Other</option>
+          <option value="education_document">Education Documents</option>
+          <option value="employment_document">Employment Documents</option>
         </select>
         <label className="btn-secondary inline-flex cursor-pointer text-xs">
           <Upload size={14} className="mr-1" /> {uploading ? "Uploading…" : "Add Document"}

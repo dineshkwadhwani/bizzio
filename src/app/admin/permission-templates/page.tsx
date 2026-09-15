@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { BackButton } from "@/components/layout/BackButton";
 
 const TOGGLES = [
   { key: "submit_timesheet", label: "Submit Timesheet" },
@@ -43,6 +44,7 @@ export default function PermissionTemplatesPage() {
 
   return (
     <div>
+      <BackButton href="/admin/employees" label="Back to Employees" />
       <h1 className="text-2xl font-bold text-ink-900">Permission Templates</h1>
       <p className="mt-1 text-sm text-ink-500">
         A reusable action-toggle matrix. Submit Timesheet and Submit DCR are mutually exclusive by design.
@@ -68,7 +70,7 @@ export default function PermissionTemplatesPage() {
         <button className="btn-primary">Save Template</button>
       </form>
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+      <div className="mt-6 grid gap-4">
         {templates.map((t) => (
           <div key={t.id} className="card">
             <h3 className="font-semibold text-ink-900">{t.name}</h3>

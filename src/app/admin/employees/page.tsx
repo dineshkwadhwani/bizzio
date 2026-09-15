@@ -23,7 +23,7 @@ export default async function EmployeesPage({
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-ink-900">Employees</h1>
-        <Link href="/admin/employees/new" className="btn-primary">
+        <Link href="/admin/employees/new" className="btn-primary w-full sm:w-auto">
           <Plus size={16} className="mr-2" /> Add Employee
         </Link>
       </div>
@@ -38,49 +38,21 @@ export default async function EmployeesPage({
         />
       </form>
 
-      <div className="card mt-6 overflow-x-auto p-0">
-        <table className="w-full text-sm">
-          <thead className="border-b border-ink-100 text-left text-ink-500">
-            <tr>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Department / Title</th>
-              <th className="px-4 py-3">Manager</th>
-              <th className="px-4 py-3">Flags</th>
-              <th className="px-4 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {employees?.map((e: any) => (
-              <tr key={e.id} className="border-b border-ink-50 last:border-0">
-                <td className="px-4 py-3">
-                  <Link href={`/admin/employees/${e.id}`} className="font-medium text-brand-600 hover:underline">
-                    {e.name}
-                  </Link>
-                  <p className="text-xs text-ink-400">{e.email} · {e.employee_code}</p>
-                </td>
-                <td className="px-4 py-3 text-ink-600">
-                  {e.departments?.name ?? "—"} / {e.titles?.name ?? "—"}
-                </td>
-                <td className="px-4 py-3 text-ink-600">{e.reporting_manager?.name ?? "— (root)"}</td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-1">
-                    {e.is_manager && <span className="badge bg-pastel-sky text-ink-700">Manager</span>}
-                    {e.is_finance && <span className="badge bg-pastel-mint text-ink-700">Finance</span>}
-                    {e.is_hr && <span className="badge bg-pastel-lilac text-ink-700">HR</span>}
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`badge ${e.status === "active" ? "bg-green-50 text-green-700" : "bg-ink-100 text-ink-500"}`}>
-                    {e.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {!employees?.length && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink-400">No employees yet.</td></tr>
-            )}
-          </tbody>
-        </table>
+      <div className="mt-6 grid gap-4">
+        {employees?.map((e: any) => (
+          <Link key={e.id} href={`/admin/employees/${e.id}`} className="card block transition hover:-translate-y-0.5 hover:shadow-md">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0"><h2 className="break-words text-lg font-semibold text-brand-600">{e.name}</h2><p className="break-all text-sm text-ink-400">{e.email} · {e.employee_code}</p></div>
+              <span className={`badge ${e.status === "active" ? "bg-green-50 text-green-700" : "bg-ink-100 text-ink-500"}`}>{e.status}</span>
+            </div>
+            <div className="mt-4 grid gap-2 text-sm text-ink-600 sm:grid-cols-2">
+              <p><span className="text-ink-400">Department / Title:</span> {e.departments?.name ?? "—"} / {e.titles?.name ?? "—"}</p>
+              <p><span className="text-ink-400">Manager:</span> {e.reporting_manager?.name ?? "— (root)"}</p>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1">{e.is_manager && <span className="badge bg-pastel-sky text-ink-700">Manager</span>}{e.is_finance && <span className="badge bg-pastel-mint text-ink-700">Finance</span>}{e.is_hr && <span className="badge bg-pastel-lilac text-ink-700">HR</span>}</div>
+          </Link>
+        ))}
+        {!employees?.length && <div className="card py-8 text-center text-ink-400">No employees yet.</div>}
       </div>
     </div>
   );

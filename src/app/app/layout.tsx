@@ -5,6 +5,7 @@ import {
 import { DashboardShell, type NavItem } from "@/components/layout/DashboardShell";
 import { createClient } from "@/lib/supabase/server";
 import { effectiveToggles } from "@/lib/permissions";
+import { MissingDocumentsModal } from "@/components/app/MissingDocumentsModal";
 
 export default async function EmployeeAppLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient();
@@ -17,6 +18,14 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     .single();
 
   const toggles = effectiveToggles(employee?.permission_templates?.toggles, employee?.permission_overrides);
+  const { data: documents } = employee
+    ? await supabase.from("employee_documents").select("document_type").eq("employee_id", employee.id)
+    : { data: [] as { document_type: string }[] };
+  const uploadedTypes = new Set((documents ?? []).map((document) => document.document_type));
+  const missingDocuments = [
+    !uploadedTypes.has("aadhar") ? "Aadhaar Card" : null,
+    !uploadedTypes.has("pan") ? "PAN Card" : null
+  ].filter((document): document is string => Boolean(document));
 
   const nav: NavItem[] = [
     { href: "/app/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
@@ -47,6 +56,7 @@ export default async function EmployeeAppLayout({ children }: { children: React.
   return (
     <DashboardShell navItems={nav} title="My Workspace">
       {children}
+      <MissingDocumentsModal missing={missingDocuments} />
     </DashboardShell>
   );
 }

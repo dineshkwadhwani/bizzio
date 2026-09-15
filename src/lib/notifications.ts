@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 export type NotificationPayload = {
   userId: string;
@@ -10,7 +10,10 @@ export type NotificationPayload = {
 };
 
 export async function sendNotification(payload: NotificationPayload) {
-  const supabase = createClient();
+  // Notifications may be addressed to another user (for example, an
+  // employee notifying their manager), so server-side delivery must bypass
+  // the caller's own-user RLS scope.
+  const supabase = createAdminClient();
 
   const { error: insertError } = await supabase.from("notifications").insert({
     user_id: payload.userId,
@@ -73,7 +76,7 @@ export async function sendNotification(payload: NotificationPayload) {
     });
 
     const settled = await Promise.allSettled(
-      subscriptions.map(async (sub) => {
+      subscriptions.map(async (sub: any) => {
         const endpoint = (sub as any).endpoint as string;
         const keys = (sub as any).keys as { p256dh?: string; auth?: string };
         if (!endpoint || !keys?.p256dh || !keys?.auth) return;

@@ -15,7 +15,9 @@ const NAV: NavItem[] = [
   { href: "/admin/expense-categories", label: "Expense Categories", icon: "Receipt" },
   { href: "/admin/account-heads", label: "Chart of Accounts", icon: "BookOpen" },
   { href: "/admin/approval-settings", label: "Approval Settings", icon: "GitBranch" },
+  { href: "/admin/approvals", label: "Approvals", icon: "CheckSquare" },
   { href: "/admin/branding", label: "Branding", icon: "ImageIcon" },
+  { href: "/admin/notifications", label: "Notifications", icon: "ScrollText" },
   { href: "/admin/reports", label: "Reports", icon: "BarChart3" }
 ];
 

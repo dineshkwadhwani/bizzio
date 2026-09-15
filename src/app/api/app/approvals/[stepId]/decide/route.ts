@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { notifyEmployeeById } from "@/lib/notifications";
 
 /**
@@ -15,7 +15,7 @@ export async function POST(
 ) {
   let guard;
   try {
-    guard = await requireRole("employee");
+    guard = await requireRole("employee", "company_admin");
   } catch (res) {
     return res as Response;
   }
@@ -29,25 +29,32 @@ export async function POST(
   }
 
   const supabase = createClient();
-  const { data: approver } = await supabase.from("employees").select("id, company_id").eq("user_id", guard.user.id).single();
-  if (!approver) return NextResponse.json({ error: "Employee record not found" }, { status: 404 });
+  const database = guard.profile.role === "company_admin" ? createAdminClient() : supabase;
+  const { data: approver } = guard.profile.role === "employee"
+    ? await database.from("employees").select("id, company_id").eq("user_id", guard.user.id).single()
+    : { data: { id: null, company_id: guard.profile.company_id } };
+  if (!approver) return NextResponse.json({ error: "Approver record not found" }, { status: 404 });
 
-  const { data: step } = await supabase.from("approval_steps").select("*").eq("id", params.stepId).single();
-  if (!step || step.approver_employee_id !== approver.id || step.status !== "pending") {
+  const { data: step } = await database.from("approval_steps").select("*").eq("id", params.stepId).single();
+  const isAuthorized = step && step.status === "pending" && (
+    step.approver_employee_id === approver.id ||
+    step.approver_user_id === guard.user.id
+  );
+  if (!isAuthorized) {
     return NextResponse.json({ error: "This approval step is not actionable by you." }, { status: 403 });
   }
 
-  await supabase
+  await database
     .from("approval_steps")
     .update({ status: decision, comment, decided_at: new Date().toISOString() })
     .eq("id", step.id);
 
   if (step.entity_type === "leave_request") {
-    await handleLeaveDecision(supabase, step, decision, approver.company_id);
+    await handleLeaveDecision(database, step, decision, approver.company_id);
   } else if (step.entity_type === "timesheet") {
-    await handleTimesheetDecision(supabase, step, decision, approver.company_id);
+    await handleTimesheetDecision(database, step, decision, approver.company_id);
   } else if (step.entity_type === "expense_claim") {
-    await handleExpenseDecision(supabase, step, decision, approver.company_id);
+    await handleExpenseDecision(database, step, decision, approver.company_id);
   }
 
   return NextResponse.json({ ok: true });

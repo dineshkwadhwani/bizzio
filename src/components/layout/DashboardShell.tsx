@@ -28,7 +28,7 @@ import {
   Users,
   X
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +70,25 @@ export function DashboardShell({
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [identity, setIdentity] = useState<{ name: string; email: string; role: string } | null>(null);
+
+  useEffect(() => {
+    const supabase = createClient();
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user) return;
+      const [{ data: profile }, { data: employee }] = await Promise.all([
+        supabase.from("users").select("role").eq("id", auth.user.id).maybeSingle(),
+        supabase.from("employees").select("name").eq("user_id", auth.user.id).maybeSingle()
+      ]);
+      const metadata = auth.user.user_metadata ?? {};
+      const name = employee?.name ?? metadata.full_name ?? metadata.name ?? auth.user.email ?? "User";
+      setIdentity({ name, email: auth.user.email ?? "", role: profile?.role ?? "user" });
+    })();
+  }, []);
+
+  const initials = identity?.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "U";
+  const roleLabel = identity?.role.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "";
 
   async function handleLogout() {
     const supabase = createClient();
@@ -90,7 +109,7 @@ export function DashboardShell({
       <p className="px-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
         {title}
       </p>
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
         {navItems.map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = NAV_ICONS[item.icon];
@@ -113,6 +132,16 @@ export function DashboardShell({
         })}
       </nav>
       <div className="border-t border-ink-100 p-3">
+        {identity && (
+          <div className="mb-3 flex items-center gap-3 rounded-lg bg-ink-50 p-2">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">{initials}</div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-ink-900">{identity.name}</p>
+              <p className="truncate text-xs text-ink-500">{roleLabel}</p>
+              <p className="truncate text-[11px] text-ink-400">{identity.email}</p>
+            </div>
+          </div>
+        )}
         <button
           onClick={handleLogout}
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-ink-600 hover:bg-ink-50"
@@ -126,7 +155,7 @@ export function DashboardShell({
   return (
     <div className="min-h-screen bg-ink-50 md:flex">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 border-r border-ink-100 bg-white md:block">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-ink-100 bg-white md:block">
         {sidebar}
       </aside>
 
@@ -135,9 +164,20 @@ export function DashboardShell({
         <span className="text-lg font-bold text-ink-900">
           Bizzio<span className="text-brand-500">.online</span>
         </span>
-        <button onClick={() => setMobileOpen(true)} aria-label="Open menu">
-          <Menu size={22} />
-        </button>
+        <div className="flex items-center gap-3">
+          {identity && (
+            <div className="flex min-w-0 items-center gap-2" aria-label={`Logged in as ${identity.name}, ${roleLabel}`}>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">{initials}</div>
+              <div className="min-w-0 text-right">
+                <p className="max-w-32 truncate text-xs font-semibold text-ink-900">{identity.name}</p>
+                <p className="max-w-32 truncate text-[11px] text-ink-500">{roleLabel}</p>
+              </div>
+            </div>
+          )}
+          <button onClick={() => setMobileOpen(true)} aria-label="Open menu">
+            <Menu size={22} />
+          </button>
+        </div>
       </div>
       {mobileOpen && (
         <div className="fixed inset-0 z-50 md:hidden">

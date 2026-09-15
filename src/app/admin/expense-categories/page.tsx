@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { BackButton } from "@/components/layout/BackButton";
 
 // Expense Categories are simply Expense-type account_heads with an
 // approval_levels value set (Module 2 §9 / Module 6 §1.3).
@@ -40,12 +41,13 @@ export default function ExpenseCategoriesPage() {
 
   return (
     <div>
+      <BackButton href="/admin/employees" label="Back to Employees" />
       <h1 className="text-2xl font-bold text-ink-900">Expense Categories</h1>
       <p className="mt-1 text-sm text-ink-500">
         Each category sets its own approval depth — this overrides the general
         Approval Hierarchy Depth specifically for expense claims (Module 2 §9).
       </p>
-      <form onSubmit={add} className="mt-4 flex flex-wrap items-end gap-3">
+      <form onSubmit={add} className="card mt-4 space-y-3">
         <div><label className="label">Category Name</label><input className="input" placeholder="e.g. Travel" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
         <div>
           <label className="label">Approval Levels</label>
@@ -56,11 +58,11 @@ export default function ExpenseCategoriesPage() {
         </div>
         <button className="btn-primary">Add</button>
       </form>
-      <div className="card mt-6 divide-y divide-ink-50 p-0">
+      <div className="mt-6 grid gap-4">
         {heads.map((h) => (
-          <div key={h.id} className="flex items-center justify-between px-4 py-3">
-            <span>{h.name} {h.is_system_generated && <span className="ml-2 text-xs text-ink-400">(seeded)</span>}</span>
-            <select className="input w-56" value={h.approval_levels ?? 1} onChange={(e) => updateLevels(h.id, e.target.value)}>
+          <div key={h.id} className="card space-y-2">
+            <label className="label">{h.name} {h.is_system_generated && <span className="ml-2 text-xs font-normal text-ink-400">(seeded)</span>}</label>
+            <select className="input w-full" value={h.approval_levels ?? 1} onChange={(e) => updateLevels(h.id, e.target.value)}>
               <option value="1">1 — Manager only</option>
               <option value="2">2 — Manager + Manager&apos;s Manager</option>
             </select>

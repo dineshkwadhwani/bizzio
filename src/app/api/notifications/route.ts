@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   let guard;
   try {
-    guard = await requireRole("employee");
+    guard = await requireRole("employee", "company_admin");
   } catch (error) {
     return error as Response;
   }
@@ -25,7 +25,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   let guard;
   try {
-    guard = await requireRole("employee");
+    guard = await requireRole("employee", "company_admin");
   } catch (error) {
     return error as Response;
   }
