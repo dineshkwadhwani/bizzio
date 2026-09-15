@@ -24,7 +24,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 
   const tpl = emailTemplates.passwordReset(linkData.properties.action_link);
-  await sendEmail({ to: employee.email, ...tpl }).catch(() => {});
+  try {
+    const { error: emailError } = await sendEmail({ to: employee.email, ...tpl });
+    if (emailError) throw new Error(emailError.message);
+  } catch {
+    return NextResponse.json({ error: "Could not send verification email" }, { status: 502 });
+  }
 
   return NextResponse.json({ sent: true });
 }

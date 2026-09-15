@@ -12,10 +12,12 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [ready, setReady] = useState(false);
+  const [firstLogin, setFirstLogin] = useState(false);
 
   useEffect(() => {
     const supabase = createClient();
     let mounted = true;
+    setFirstLogin(new URLSearchParams(window.location.search).get("first_login") === "1");
 
     async function prepareRecoverySession() {
       const code = new URLSearchParams(window.location.search).get("code");
@@ -68,7 +70,8 @@ export default function ResetPasswordPage() {
     setLoading(true);
     const supabase = createClient();
     const { error: updateError } = await supabase.auth.updateUser({
-      password
+      password,
+      data: { must_change_password: false }
     });
     await supabase.auth.signOut();
     setLoading(false);
@@ -88,7 +91,9 @@ export default function ResetPasswordPage() {
           <Link href="/" className="text-xl font-bold text-ink-900">
             Bizzio<span className="text-brand-500">.online</span>
           </Link>
-          <p className="mt-2 text-sm text-ink-500">Set a new password</p>
+          <p className="mt-2 text-sm text-ink-500">
+            {firstLogin ? "Set your new password to continue" : "Set a new password"}
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

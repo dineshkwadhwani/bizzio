@@ -56,8 +56,8 @@ export const emailTemplates = {
     subject: "Reset your Bizzio Online password",
     html: `<p>Click the link below to reset your password. This link expires in 1 hour.</p><p><a href="${resetUrl}">Reset password</a></p>`
   }),
-  employeeInvite: (companyName: string, setPasswordUrl: string) => ({
+  employeeInvite: (companyName: string, employeeEmail: string, loginUrl: string, temporaryPassword: string) => ({
     subject: `You've been added to ${companyName} on Bizzio Online`,
-    html: `<p>You've been invited to join <strong>${companyName}</strong> on Bizzio Online.</p><p><a href="${setPasswordUrl}">Set your password to log in</a></p>`
+    html: `<p>You've been added to <strong>${companyName}</strong> on Bizzio Online.</p><p>Use these temporary login details:</p><p><strong>Email:</strong> ${employeeEmail}<br><strong>Temporary password:</strong> ${temporaryPassword}</p><p><a href="${loginUrl}">Log in to Bizzio Online</a></p><p>After logging in with this temporary password, Bizzio will show you fields to enter and confirm your new password. Once saved, the temporary password will no longer work.</p>`
   })
 };

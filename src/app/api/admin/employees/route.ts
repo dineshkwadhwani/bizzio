@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { randomBytes } from "crypto";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, emailTemplates } from "@/lib/resend";
@@ -52,6 +53,8 @@ export async function POST(request: Request) {
 
   const { data: company } = await admin.from("companies").select("name").eq("id", companyId).single();
 
+  const temporaryPassword = randomBytes(18).toString("base64url");
+
   // Auto-generate employee_code: EMP-0001, EMP-0002, ...
   const { count } = await admin
     .from("employees")
@@ -61,7 +64,12 @@ export async function POST(request: Request) {
 
   const { data: authUser, error: createErr } = await admin.auth.admin.createUser({
     email: data.email,
-    email_confirm: true
+    password: temporaryPassword,
+    email_confirm: true,
+    user_metadata: {
+      full_name: data.name,
+      must_change_password: true
+    }
   });
   if (createErr || !authUser.user) {
     return NextResponse.json({ error: createErr?.message ?? "Could not create login" }, { status: 500 });
@@ -95,14 +103,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const { data: linkData } = await admin.auth.admin.generateLink({
-    type: "invite",
-    email: data.email
-  });
-
-  if (linkData?.properties?.action_link) {
-    const tpl = emailTemplates.employeeInvite(company?.name ?? "your company", linkData.properties.action_link);
-    await sendEmail({ to: data.email, ...tpl }).catch(() => {});
+  try {
+    const tpl = emailTemplates.employeeInvite(
+      company?.name ?? "your company",
+      data.email,
+      `${process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online"}/login`,
+      temporaryPassword
+    );
+    const { error: emailError } = await sendEmail({ to: data.email, ...tpl });
+    if (emailError) throw new Error(emailError.message);
+  } catch {
+    return NextResponse.json(
+      { error: "Employee was created, but the login email could not be sent. Please use Reset Password from the employee profile." },
+      { status: 502 }
+    );
   }
 
   return NextResponse.json({ employee });

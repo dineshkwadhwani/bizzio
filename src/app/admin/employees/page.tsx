@@ -12,7 +12,7 @@ export default async function EmployeesPage({
   const supabase = createClient();
   let query = supabase
     .from("employees")
-    .select("id, name, email, employee_code, status, is_manager, is_finance, is_hr, departments(name), titles(name), reporting_manager:reporting_manager_id(name)")
+    .select("id, name, email, employee_code, status, is_manager, is_finance, is_hr, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
     .order("name");
 
   if (searchParams.q) query = query.ilike("name", `%${searchParams.q}%`);

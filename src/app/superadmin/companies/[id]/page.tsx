@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CompanyActions } from "@/components/superadmin/CompanyActions";
+import { SuperadminEmployeeList } from "@/components/superadmin/SuperadminEmployeeList";
 import { formatDate } from "@/lib/utils";
 
 export const revalidate = 0;
@@ -19,7 +20,7 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
 
   const { data: employees } = await supabase
     .from("employees")
-    .select("id, name, email, status, is_manager, is_finance, is_hr")
+    .select("id, name, email, employee_code, phone, dob, gender, date_of_joining, emergency_contact_name, emergency_contact_phone, bank_account_no, bank_ifsc, bank_name, payable_salary, status, is_manager, is_director, is_finance, finance_scope, is_hr, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
     .eq("company_id", params.id)
     .order("name");
 
@@ -56,21 +57,7 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
 
       <div className="card">
         <h2 className="mb-4 font-semibold text-ink-900">Users ({employees?.length ?? 0})</h2>
-        {/* TODO: password-reset trigger per user (Module 7 §2.3) —
-            call supabase.auth.admin.generateLink({type:'recovery', email}) via an API route
-            and email it through Resend, same pattern as the approve route. */}
-        <div className="divide-y divide-ink-50">
-          {employees?.map((e) => (
-            <div key={e.id} className="flex items-center justify-between py-2 text-sm">
-              <div>
-                <p className="font-medium text-ink-800">{e.name}</p>
-                <p className="text-ink-400">{e.email}</p>
-              </div>
-              <span className="text-xs text-ink-400">{e.status}</span>
-            </div>
-          ))}
-          {!employees?.length && <p className="text-sm text-ink-400">No employees yet.</p>}
-        </div>
+        <SuperadminEmployeeList employees={employees ?? []} />
       </div>
 
       <div className="card">

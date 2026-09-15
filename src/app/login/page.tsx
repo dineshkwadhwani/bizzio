@@ -48,6 +48,9 @@ function LoginForm() {
     setLoading(false);
 
     const redirectTo = params.get("redirectTo");
+    if (data.user.user_metadata?.must_change_password === true) {
+      return router.push("/reset-password?first_login=1");
+    }
     if (redirectTo) return router.push(redirectTo);
 
     if (profile?.role === "superadmin") return router.push("/superadmin/dashboard");
