@@ -33,7 +33,7 @@ export default async function QuotationsPage() {
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-ink-900">Quotations</h1>
         <Link href="/app/finance/quotations/new" className="btn-primary">
-          <Plus size={16} className="mr-2" /> Add Quotation
+          <Plus size={16} className="mr-2" /> Create Quotation
         </Link>
       </div>
 
@@ -42,7 +42,8 @@ export default async function QuotationsPage() {
           {quotations?.map((quotation: any) => (
             <Link key={quotation.id} href={`/app/finance/quotations/${quotation.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
               <div>
-                <p className="font-medium text-ink-800">{quotation.quo_number}</p>
+                <p className="font-medium text-ink-800">{quotation.title}</p>
+                <p className="text-xs text-ink-400">{quotation.quo_number}</p>
                 <p className="text-ink-400">{quotation.customer?.name || "Unknown customer"}</p>
               </div>
               <div className="text-right">

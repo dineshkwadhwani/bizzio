@@ -49,12 +49,12 @@ export default function ProfilePage() {
       <h1 className="text-2xl font-bold text-ink-900">My Profile</h1>
 
       <div className="card mt-6">
-        <h2 className="font-semibold text-ink-900">Read-only (set by Company Admin)</h2>
-        <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
-          <div><dt className="text-ink-400">Name</dt><dd>{employee.name}</dd></div>
-          <div><dt className="text-ink-400">Employee Code</dt><dd>{employee.employee_code}</dd></div>
-          <div><dt className="text-ink-400">Email</dt><dd>{employee.email}</dd></div>
-          <div><dt className="text-ink-400">Date of Joining</dt><dd>{employee.date_of_joining ?? "—"}</dd></div>
+        <h2 className="font-semibold text-ink-900">Employee Details</h2>
+        <dl className="mt-3 space-y-1 text-sm">
+          <dd className="text-lg font-bold text-ink-900">{employee.name}</dd>
+          <dd className="text-ink-600">{employee.employee_code}</dd>
+          <dd className="break-all text-ink-600">{employee.email}</dd>
+          <dd className="text-ink-600">{employee.date_of_joining ?? "—"}</dd>
         </dl>
       </div>
 

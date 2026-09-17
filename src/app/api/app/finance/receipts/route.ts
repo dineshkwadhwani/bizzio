@@ -6,7 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 const ReceiptSchema = z.object({
   invoice_id: z.string().min(1),
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
-  reference_number: z.string().optional().or(z.literal(""))
+  reference_number: z.string().optional().or(z.literal("")),
+  amount_received: z.coerce.number().positive(),
+  delta_treatment: z.enum(["tds", "discount"]).optional().nullable()
 });
 
 export async function POST(request: Request) {
@@ -51,7 +53,9 @@ export async function POST(request: Request) {
       p_company_id: guard.employee.company_id,
       p_payment_mode: parsed.data.payment_mode,
       p_reference_number: parsed.data.reference_number?.trim() || null,
-      p_received_by: guard.employee.id
+      p_received_by: guard.employee.id,
+      p_amount_received: parsed.data.amount_received,
+      p_delta_treatment: parsed.data.delta_treatment || null
     });
 
     if (rpcError) {

@@ -18,6 +18,8 @@ export default function SalesOrderDetailPage() {
   const [lineItems, setLineItems] = useState<any[]>([]);
   const [reviewed, setReviewed] = useState(false);
   const [customerPoNumber, setCustomerPoNumber] = useState("");
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
+  const [attachmentName, setAttachmentName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +34,8 @@ export default function SalesOrderDetailPage() {
       setSalesOrder(json.salesOrder);
       setLineItems((json.lineItems || []).map((line: any) => ({ ...line })));
       setCustomerPoNumber(json.salesOrder.customer_po_number || "");
+      setAttachmentUrl(json.attachmentUrl || null);
+      setAttachmentName(json.salesOrder.customer_po_attachment_name || "");
       setReviewed(json.salesOrder.status !== "created");
     }
     if (params.id) load();
@@ -158,7 +162,8 @@ export default function SalesOrderDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm uppercase tracking-wide text-ink-500">Sales Order</p>
-          <h1 className="text-2xl font-bold text-ink-900">{salesOrder.so_number}</h1>
+          <h1 className="text-2xl font-bold text-ink-900">{salesOrder.title}</h1>
+          <p className="text-sm text-ink-500">{salesOrder.so_number}</p>
         </div>
         <span className={`badge ${salesOrder.status === "invoiced" ? "bg-green-50 text-green-700" : salesOrder.status === "sent" ? "bg-blue-50 text-blue-700" : "bg-ink-100 text-ink-500"}`}>
           {salesOrder.status}
@@ -176,6 +181,7 @@ export default function SalesOrderDetailPage() {
             <input className="input" value={customerPoNumber} onChange={(e) => setCustomerPoNumber(e.target.value)} placeholder="Optional" />
           </div>
         </div>
+        {attachmentUrl && <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800"><span className="font-medium">Customer PO:</span> <a className="underline" href={attachmentUrl} target="_blank" rel="noreferrer">{attachmentName || "Download attachment"}</a></div>}
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">

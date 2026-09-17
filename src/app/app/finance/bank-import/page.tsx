@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { BankImportBatchList } from "@/components/finance/BankImportBatchList";
 
 export const revalidate = 0;
 
@@ -37,20 +38,7 @@ export default async function BankImportPage() {
         </Link>
       </div>
 
-      <div className="card mt-6 p-0">
-        <div className="divide-y divide-ink-50">
-          {imports?.map((item: any) => (
-            <Link key={item.id} href={`/app/finance/bank-import/${item.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
-              <div>
-                <p className="font-medium text-ink-800">{item.batch_name}</p>
-                <p className="text-ink-400">{new Date(item.uploaded_at).toLocaleString()}</p>
-              </div>
-              <span className="badge bg-ink-100 text-ink-600">Open batch</span>
-            </Link>
-          ))}
-          {!imports?.length && <p className="px-4 py-8 text-center text-ink-400">No imports uploaded yet.</p>}
-        </div>
-      </div>
+      <BankImportBatchList initialImports={imports ?? []} />
     </div>
   );
 }

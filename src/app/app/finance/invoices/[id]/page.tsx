@@ -9,6 +9,8 @@ export default function InvoiceDetailPage() {
   const [receiptData, setReceiptData] = useState<any>(null);
   const [paymentMode, setPaymentMode] = useState("cash");
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [amountReceived, setAmountReceived] = useState("");
+  const [deltaTreatment, setDeltaTreatment] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,6 +23,7 @@ export default function InvoiceDetailPage() {
         return;
       }
       setData({ invoice: json.invoice, lineItems: json.lineItems || [] });
+      setAmountReceived(String(json.invoice.total_amount || ""));
     }
     if (params.id) load();
   }, [params.id]);
@@ -65,6 +68,8 @@ export default function InvoiceDetailPage() {
         invoice_id: data.invoice.id,
         payment_mode: paymentMode,
         reference_number: referenceNumber
+        ,amount_received: Number(amountReceived || data.invoice.total_amount),
+        delta_treatment: deltaTreatment || null
       })
     });
     const json = await res.json();
@@ -92,7 +97,8 @@ export default function InvoiceDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm uppercase tracking-wide text-ink-500">Invoice</p>
-          <h1 className="text-2xl font-bold text-ink-900">{data.invoice.invoice_number}</h1>
+          <h1 className="text-2xl font-bold text-ink-900">{data.invoice.title}</h1>
+          <p className="text-sm text-ink-500">{data.invoice.invoice_number}</p>
         </div>
         <span className={`badge ${data.invoice.status === "paid" ? "bg-green-50 text-green-700" : data.invoice.status === "sent" ? "bg-blue-50 text-blue-700" : data.invoice.status === "reviewed" ? "bg-amber-50 text-amber-700" : "bg-ink-100 text-ink-500"}`}>
           {statusLabel}
@@ -175,7 +181,22 @@ export default function InvoiceDetailPage() {
                 <label className="label">Reference</label>
                 <input className="input" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="Cheque number / UTR / notes" />
               </div>
+              <div>
+                <label className="label">Amount actually received (₹)</label>
+                <input className="input" type="number" min="0.01" max={data.invoice.total_amount} step="0.01" value={amountReceived} onChange={(e) => setAmountReceived(e.target.value)} />
+              </div>
+              {Number(amountReceived || data.invoice.total_amount) < Number(data.invoice.total_amount) && (
+                <div>
+                  <label className="label">How should the difference be treated?</label>
+                  <select className="input" value={deltaTreatment} onChange={(e) => setDeltaTreatment(e.target.value)} required>
+                    <option value="">Select treatment</option>
+                    <option value="tds">TDS deducted by customer</option>
+                    <option value="discount">Discount allowed</option>
+                  </select>
+                </div>
+              )}
             </div>
+            <p className="mt-3 text-xs text-ink-500">GST is credited to GST Payable. The remaining invoice amount is credited to Sales. A short receipt is posted to TDS Receivable or Sales Discounts as selected.</p>
             <button type="button" className="btn-primary mt-4" disabled={loading} onClick={createReceipt}>
               {loading ? "Posting…" : "Create Receipt"}
             </button>

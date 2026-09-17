@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { notifyEmployeeById, sendNotification } from "@/lib/notifications";
+import { notifyEmployeeById } from "@/lib/notifications";
 
 const Schema = z.object({
   leave_type_id: z.string().uuid(),
@@ -33,22 +33,6 @@ export async function POST(request: Request) {
     .single();
   if (!employee) return NextResponse.json({ error: "Employee record not found" }, { status: 404 });
 
-  let companyAdmin: { id: string } | null = null;
-  if (!employee.reporting_manager_id) {
-    const { data } = await supabase
-      .from("users")
-      .select("id")
-      .eq("company_id", employee.company_id)
-      .eq("role", "company_admin")
-      .eq("status", "active")
-      .limit(1)
-      .maybeSingle();
-    companyAdmin = data;
-    if (!companyAdmin) {
-      return NextResponse.json({ error: "No active company administrator is available for this leave request." }, { status: 400 });
-    }
-  }
-
   // Holiday-date guard (Module 3 §2.1) — reject if any date in range is a holiday.
   const { data: holidays } = await supabase
     .from("holidays")
@@ -76,7 +60,7 @@ export async function POST(request: Request) {
 
   const { data: leaveRequest, error } = await supabase
     .from("leave_requests")
-    .insert({ ...parsed.data, employee_id: employee.id, company_id: employee.company_id, status: "submitted" })
+    .insert({ ...parsed.data, employee_id: employee.id, company_id: employee.company_id, status: employee.reporting_manager_id ? "submitted" : "approved" })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -97,25 +81,31 @@ export async function POST(request: Request) {
       entityType: "leave_request",
       entityId: leaveRequest.id
     });
-  } else if (companyAdmin) {
-    const { error: stepError } = await supabase.from("approval_steps").insert({
-      entity_type: "leave_request",
-      entity_id: leaveRequest.id,
-      level: 1,
-      approver_user_id: companyAdmin.id,
-      status: "pending"
-    });
-    if (stepError) return NextResponse.json({ error: stepError.message }, { status: 500 });
-
-    await sendNotification({
-      userId: companyAdmin.id,
-      type: "leave_request_submitted",
-      title: "Root employee leave request",
-      body: `A leave request for ${leaveRequest.start_date} to ${leaveRequest.end_date} from a root employee requires your attention.`,
-      entityType: "leave_request",
-      entityId: leaveRequest.id
-    });
+  } else {
+    const dates: string[] = [];
+    const cursor = new Date(leaveRequest.start_date);
+    const end = new Date(leaveRequest.end_date);
+    while (cursor <= end) {
+      dates.push(cursor.toISOString().slice(0, 10));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    for (const date of dates) {
+      await supabase.from("attendance").upsert(
+        { employee_id: employee.id, company_id: employee.company_id, date, status: leaveRequest.is_half_day ? "half_day" : "on_leave" },
+        { onConflict: "employee_id,date" }
+      );
+    }
+    const decrement = leaveRequest.is_half_day ? 0.5 : dates.length;
+    const { data: balance } = await supabase
+      .from("leave_balances")
+      .select("id, balance")
+      .eq("employee_id", employee.id)
+      .eq("leave_type_id", leaveRequest.leave_type_id)
+      .maybeSingle();
+    if (balance) {
+      await supabase.from("leave_balances").update({ balance: balance.balance - decrement }).eq("id", balance.id);
+    }
   }
 
-  return NextResponse.json({ leaveRequest });
+  return NextResponse.json({ leaveRequest, autoApproved: !employee.reporting_manager_id });
 }

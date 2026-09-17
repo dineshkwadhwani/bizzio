@@ -13,6 +13,8 @@ const LineItemSchema = z.object({
 
 const UpdateSchema = z.object({
   customer_po_number: z.string().optional().nullable(),
+  customer_po_attachment_path: z.string().optional().nullable(),
+  customer_po_attachment_name: z.string().optional().nullable(),
   status: z.enum(["created", "sent", "invoiced"]).optional(),
   lines: z.array(LineItemSchema).optional()
 });
@@ -61,7 +63,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
-    return NextResponse.json({ salesOrder, lineItems: lineItems ?? [] });
+    const attachmentUrl = salesOrder.customer_po_attachment_path
+      ? (await supabase.storage.from("sales-order-documents").createSignedUrl(salesOrder.customer_po_attachment_path, 3600)).data?.signedUrl ?? null
+      : null;
+    return NextResponse.json({ salesOrder, lineItems: lineItems ?? [], attachmentUrl });
   } catch (error) {
     return error as Response;
   }
@@ -82,6 +87,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (parsed.data.customer_po_number !== undefined) {
       updates.customer_po_number = parsed.data.customer_po_number?.trim() || null;
     }
+    if (parsed.data.customer_po_attachment_path !== undefined) updates.customer_po_attachment_path = parsed.data.customer_po_attachment_path?.trim() || null;
+    if (parsed.data.customer_po_attachment_name !== undefined) updates.customer_po_attachment_name = parsed.data.customer_po_attachment_name?.trim() || null;
 
     if (parsed.data.status) {
       updates.status = parsed.data.status;

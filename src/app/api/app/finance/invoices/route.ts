@@ -12,6 +12,7 @@ const LineItemSchema = z.object({
 });
 
 const InvoiceSchema = z.object({
+  title: z.string().trim().min(1),
   customer_id: z.string().min(1).optional(),
   so_id: z.string().optional().nullable(),
   status: z.enum(["draft", "reviewed", "sent", "paid"]).optional(),
@@ -109,6 +110,7 @@ export async function POST(request: Request) {
     let customerId = parsed.data.customer_id ?? null;
     let soId = parsed.data.so_id ?? null;
     let lines = parsed.data.lines;
+    let salesOrderTitle: string | null = null;
 
     if (soId) {
       const { data: salesOrder, error: salesOrderError } = await supabase
@@ -127,6 +129,7 @@ export async function POST(request: Request) {
       }
 
       customerId = salesOrder.customer_id;
+      salesOrderTitle = salesOrder.title;
 
       const { data: soLines, error: soLineError } = await supabase
         .from("so_line_items")
@@ -136,7 +139,7 @@ export async function POST(request: Request) {
         .order("id", { ascending: true });
 
       if (soLineError) return NextResponse.json({ error: soLineError.message }, { status: 500 });
-      if (soLines && soLines.length && (!lines || lines.length === 0)) {
+      if (soLines && soLines.length) {
         lines = soLines.map((line) => ({
           description: line.description,
           qty: Number(line.qty),
@@ -182,6 +185,7 @@ export async function POST(request: Request) {
         company_id: companyId,
         customer_id: customerId,
         so_id: soId,
+        title: salesOrderTitle || parsed.data.title,
         invoice_number: invoiceNumber,
         status: invoiceStatus,
         base_amount: Number(totals.base.toFixed(2)),

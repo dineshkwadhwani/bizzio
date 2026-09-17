@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const VendorSchema = z.object({
   name: z.string().min(2),
+  bank_account_name: z.string().optional().or(z.literal("")),
   gstin: z.string().optional().or(z.literal("")),
   address: z.string().optional().or(z.literal("")),
   state: z.string().optional().or(z.literal("")),
@@ -55,6 +56,7 @@ export async function POST(request: Request) {
     .insert({
       company_id: guard.employee.company_id,
       name: parsed.data.name.trim(),
+      bank_account_name: parsed.data.bank_account_name?.trim() || null,
       gstin: parsed.data.gstin?.trim() || null,
       address: parsed.data.address?.trim() || null,
       state: parsed.data.state?.trim() || null,

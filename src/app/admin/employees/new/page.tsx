@@ -16,7 +16,7 @@ export default function NewEmployeePage() {
   const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
-    name: "", email: "", phone: "", dob: "", gender: "", date_of_joining: "",
+    name: "", email: "", employee_type: "permanent", phone: "", dob: "", gender: "", date_of_joining: "",
     department_id: "", title_id: "", reporting_manager_id: "", is_root: false,
     is_manager: false, is_director: false, is_finance: false, finance_scope: "department",
     is_hr: false, emergency_contact_name: "", emergency_contact_phone: "",
@@ -79,6 +79,13 @@ export default function NewEmployeePage() {
           <div>
             <label className="label">Phone</label>
             <input className="input" value={form.phone} onChange={(e) => update("phone", e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Employee Type</label>
+            <select className="input" value={form.employee_type} onChange={(e) => update("employee_type", e.target.value)}>
+              <option value="permanent">Permanent</option>
+              <option value="contractor">Contractor</option>
+            </select>
           </div>
           <div>
             <label className="label">Date of Birth</label>

@@ -13,6 +13,8 @@ const LineItemSchema = z.object({
 
 const UpdateSchema = z.object({
   vendor_id: z.string().min(1).optional(),
+  supplier_quotation_path: z.string().optional().nullable(),
+  supplier_quotation_name: z.string().optional().nullable(),
   status: z.enum(["draft", "reviewed", "sent"]).optional(),
   lines: z.array(LineItemSchema).optional()
 });
@@ -61,7 +63,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
-    return NextResponse.json({ po, lineItems: lineItems ?? [] });
+    const quotationUrl = po.supplier_quotation_path ? (await supabase.storage.from("purchase-order-documents").createSignedUrl(po.supplier_quotation_path, 3600)).data?.signedUrl ?? null : null;
+    return NextResponse.json({ po, lineItems: lineItems ?? [], quotationUrl });
   } catch (error) {
     return error as Response;
   }
@@ -92,6 +95,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
       updates.vendor_id = parsed.data.vendor_id;
     }
+    if (parsed.data.supplier_quotation_path !== undefined) updates.supplier_quotation_path = parsed.data.supplier_quotation_path?.trim() || null;
+    if (parsed.data.supplier_quotation_name !== undefined) updates.supplier_quotation_name = parsed.data.supplier_quotation_name?.trim() || null;
 
     if (parsed.data.status) {
       updates.status = parsed.data.status;
@@ -159,12 +164,23 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
   try {
     const guard = await requireFinance();
     const supabase = createClient();
+    const { data: payment } = await supabase
+      .from("purchase_order_payments")
+      .select("id")
+      .eq("purchase_order_id", params.id)
+      .eq("company_id", guard.employee.company_id)
+      .maybeSingle();
+
+    if (payment) {
+      return NextResponse.json({ error: "This Purchase Order cannot be deleted because a payment has been recorded for it." }, { status: 400 });
+    }
+
     const { data, error } = await supabase
       .from("purchase_orders")
-      .update({ status: "draft" })
+      .delete()
       .eq("id", params.id)
       .eq("company_id", guard.employee.company_id)
-      .select("*")
+      .select("id")
       .single();
 
     if (error) {
@@ -172,7 +188,7 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ po: data, resetToDraft: true });
+    return NextResponse.json({ purchaseOrder: data, deleted: true });
   } catch (error) {
     return error as Response;
   }

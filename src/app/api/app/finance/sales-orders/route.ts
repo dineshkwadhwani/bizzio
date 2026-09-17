@@ -4,7 +4,10 @@ import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const CreateSalesOrderSchema = z.object({
-  quotation_id: z.string().min(1),
+  title: z.string().trim().min(1),
+  customer_id: z.string().min(1).optional(),
+  quotation_id: z.string().min(1).optional().nullable(),
+  lines: z.array(z.object({ description: z.string().min(1), qty: z.coerce.number().positive(), rate: z.coerce.number().min(0), gst_percent: z.coerce.number().min(0).max(100), gst_type: z.enum(["cgst_sgst", "igst"]) })).optional(),
   customer_po_number: z.string().optional().or(z.literal("")),
   status: z.enum(["created", "sent", "invoiced"]).optional()
 });
@@ -73,31 +76,36 @@ export async function POST(request: Request) {
     }
 
     const supabase = createClient();
+    let quotationTitle: string | null = null;
 
-    const { data: quotation, error: quotationError } = await supabase
+    const { data: quotation, error: quotationError } = parsed.data.quotation_id ? await supabase
       .from("quotations")
       .select("*")
       .eq("id", parsed.data.quotation_id)
       .eq("company_id", guard.employee.company_id)
-      .single();
+      .single() : { data: null, error: null };
 
-    if (quotationError || !quotation) {
+    if (parsed.data.quotation_id && (quotationError || !quotation)) {
       return NextResponse.json({ error: "Quotation not found in this company" }, { status: 404 });
     }
 
-    if (quotation.status !== "accepted") {
+    if (quotation && quotation.status !== "accepted") {
       return NextResponse.json({ error: "Only accepted quotations can be converted into sales orders" }, { status: 400 });
     }
+    if (quotation) quotationTitle = quotation.title;
 
-    const { data: quotationLines, error: quotationLineError } = await supabase
+    const { data: quotationLines, error: quotationLineError } = quotation ? await supabase
       .from("quotation_line_items")
       .select("*")
       .eq("quotation_id", quotation.id)
       .eq("company_id", guard.employee.company_id)
-      .order("id", { ascending: true });
+      .order("id", { ascending: true }) : { data: [], error: null };
 
     if (quotationLineError) return NextResponse.json({ error: quotationLineError.message }, { status: 500 });
-    if (!quotationLines?.length) return NextResponse.json({ error: "Quotation does not have any line items" }, { status: 400 });
+    const lines = quotationLines?.length ? quotationLines : parsed.data.lines || [];
+    if (!lines.length) return NextResponse.json({ error: "Add at least one line item or select a quotation" }, { status: 400 });
+    const customerId = quotation?.customer_id || parsed.data.customer_id;
+    if (!customerId) return NextResponse.json({ error: "Customer is required when no quotation is selected" }, { status: 400 });
 
     const { soNumber } = await getNextSalesOrderNumber(supabase, guard.employee.company_id);
     const status = parsed.data.status ?? "created";
@@ -106,8 +114,9 @@ export async function POST(request: Request) {
       .from("sales_orders")
       .insert({
         company_id: guard.employee.company_id,
-        customer_id: quotation.customer_id,
-        quotation_id: quotation.id,
+        customer_id: customerId,
+        title: quotationTitle || parsed.data.title,
+        quotation_id: quotation?.id || null,
         so_number: soNumber,
         customer_po_number: parsed.data.customer_po_number?.trim() || null,
         status,
@@ -119,7 +128,7 @@ export async function POST(request: Request) {
 
     if (soError) return NextResponse.json({ error: soError.message }, { status: 500 });
 
-    const lineItems = quotationLines.map((line) => ({
+    const lineItems = lines.map((line) => ({
       so_id: salesOrder.id,
       company_id: guard.employee.company_id,
       description: line.description,

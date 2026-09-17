@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 const UpdateSchema = z.object({
   phone: z.string().optional(),
   date_of_joining: z.string().date().nullable().optional(),
+  employee_type: z.enum(["permanent", "contractor"]).optional(),
   department_id: z.string().uuid().nullable().optional(),
   title_id: z.string().uuid().nullable().optional(),
   reporting_manager_id: z.string().uuid().nullable().optional(),

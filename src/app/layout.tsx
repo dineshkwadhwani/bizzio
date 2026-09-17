@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   title: "Bizzio Online — Attendance, DCR, Accounting & Expenses for SMEs",
   description:
     "One platform for attendance tracking, daily call reporting, simple accounting, and expense reimbursement — built for Indian SMEs.",
+  icons: {
+    icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg"
+  },
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online")
 };
 

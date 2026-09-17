@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 
 export const revalidate = 0;
@@ -31,6 +32,7 @@ export default async function SalesOrdersPage() {
     <div>
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-ink-900">Sales Orders</h1>
+        <Link href="/app/finance/sales-orders/new" className="btn-primary"><Plus size={16} className="mr-2" /> New Sales Order</Link>
       </div>
 
       <div className="card mt-6 p-0">
@@ -38,7 +40,8 @@ export default async function SalesOrdersPage() {
           {salesOrders?.map((salesOrder: any) => (
             <Link key={salesOrder.id} href={`/app/finance/sales-orders/${salesOrder.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
               <div>
-                <p className="font-medium text-ink-800">{salesOrder.so_number}</p>
+                <p className="font-medium text-ink-800">{salesOrder.title}</p>
+                <p className="text-xs text-ink-400">{salesOrder.so_number}</p>
                 <p className="text-ink-400">{salesOrder.customer?.name || "Unknown customer"}</p>
               </div>
               <div className="text-right">

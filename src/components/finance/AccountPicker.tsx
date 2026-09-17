@@ -6,7 +6,7 @@ export type AccountOption = {
   id: string;
   label: string;
   kind: "head" | "party";
-  type: "expense" | "income";
+  type: "asset" | "liability" | "equity" | "expense" | "income";
   party_type: "vendor" | "customer" | null;
   group: string;
 };

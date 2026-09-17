@@ -5,7 +5,7 @@ import { useState } from "react";
 type Option = { id: string; name: string };
 
 export function EditEmployeeDetails({ employee, departments, titles, managers }: {
-  employee: { id: string; phone: string | null; date_of_joining: string | null; department_id: string | null; title_id: string | null; reporting_manager_id: string | null; status: string };
+  employee: { id: string; phone: string | null; date_of_joining: string | null; employee_type: string | null; department_id: string | null; title_id: string | null; reporting_manager_id: string | null; status: string };
   departments: Option[];
   titles: Option[];
   managers: Option[];
@@ -13,6 +13,7 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
   const [form, setForm] = useState({
     phone: employee.phone ?? "",
     date_of_joining: employee.date_of_joining ?? "",
+    employee_type: employee.employee_type ?? "permanent",
     department_id: employee.department_id ?? "",
     title_id: employee.title_id ?? "",
     reporting_manager_id: employee.reporting_manager_id ?? "",
@@ -57,6 +58,13 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
       <div>
         <label className="label" htmlFor="employee-date-of-joining">Date of Joining</label>
         <input id="employee-date-of-joining" type="date" className="input" value={form.date_of_joining} onChange={(e) => setForm({ ...form, date_of_joining: e.target.value })} />
+      </div>
+      <div>
+        <label className="label" htmlFor="employee-type">Employee Type</label>
+        <select id="employee-type" className="input" value={form.employee_type} onChange={(e) => setForm({ ...form, employee_type: e.target.value })}>
+          <option value="permanent">Permanent</option>
+          <option value="contractor">Contractor</option>
+        </select>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>

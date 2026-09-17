@@ -19,6 +19,7 @@ create type company_status      as enum ('pending', 'payment_pending', 'active',
 create type payment_status      as enum ('created', 'success', 'failed');
 create type finance_scope       as enum ('department', 'company');
 create type employee_status     as enum ('active', 'left');
+create type employee_type       as enum ('permanent', 'contractor');
 create type document_type       as enum ('aadhar', 'pan', 'address_proof', 'education_document', 'employment_document', 'experience_letter', 'offer_letter', 'other');
 create type attendance_status   as enum ('present', 'absent', 'half_day', 'on_leave', 'holiday');
 create type attendance_work_location as enum ('designated_office', 'home', 'other_location');
@@ -40,8 +41,8 @@ create type so_status           as enum ('created', 'sent', 'invoiced');
 create type invoice_status      as enum ('draft', 'reviewed', 'sent', 'paid');
 create type gst_type            as enum ('cgst_sgst', 'igst');
 create type ledger_entry_type   as enum ('debit', 'credit');
-create type ledger_source_type  as enum ('expense_claim', 'invoice_receipt', 'adhoc_expense', 'adhoc_income', 'salary_paid', 'bank_import_row');
-create type bank_row_status     as enum ('pending', 'posted', 'ignored', 'possible_duplicate');
+create type ledger_source_type  as enum ('expense_claim', 'invoice_issued', 'invoice_receipt', 'adhoc_expense', 'adhoc_income', 'gst_payment', 'salary_paid', 'bank_import_row', 'manual_journal', 'opening_balance');
+create type bank_row_status     as enum ('pending', 'posted', 'ignored', 'possible_duplicate', 'reconciled');
 create type notification_channel as enum ('email', 'push');
 create type doc_seq_type        as enum ('po', 'quo', 'so', 'invoice', 'receipt');
 
@@ -169,6 +170,7 @@ create table employees (
   name                    text not null,
   email                   text not null,
   phone                   text,
+  employee_type           employee_type not null default 'permanent',
   dob                     date,
   gender                  text,
   date_of_joining         date,
@@ -383,6 +385,7 @@ create table vendors (
   contact_email         text,
   contact_phone         text,
   bank_account_no       text,
+  bank_account_name     text,
   bank_ifsc             text,
   bank_name             text,
   party_account_head_id uuid references account_heads(id),
@@ -421,6 +424,9 @@ create table purchase_orders (
   id          uuid primary key default gen_random_uuid(),
   company_id  uuid not null references companies(id) on delete cascade,
   vendor_id   uuid not null references vendors(id),
+  title       text not null,
+  supplier_quotation_path text,
+  supplier_quotation_name text,
   po_number   text not null,
   status      doc_status not null default 'draft',
   sent_at     timestamptz,
@@ -444,10 +450,27 @@ create table po_line_items (
   line_total    numeric(14,2) not null default 0
 );
 
+create table purchase_order_payments (
+  id uuid primary key default gen_random_uuid(),
+  purchase_order_id uuid not null references purchase_orders(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
+  payment_type text not null default 'full' check (payment_type in ('advance', 'part', 'full')),
+  payment_mode payment_mode not null,
+  reference_number text,
+  amount numeric(14,2) not null,
+  supplier_invoice_path text,
+  supplier_invoice_name text,
+  paid_by uuid references employees(id),
+  paid_at timestamptz not null default now(),
+  journal_id uuid,
+  created_at timestamptz not null default now()
+);
+
 create table quotations (
   id          uuid primary key default gen_random_uuid(),
   company_id  uuid not null references companies(id) on delete cascade,
   customer_id uuid not null references customers(id),
+  title       text not null,
   quo_number  text not null,
   status      quotation_status not null default 'draft',
   sent_at     timestamptz,
@@ -476,7 +499,10 @@ create table sales_orders (
   id                 uuid primary key default gen_random_uuid(),
   company_id         uuid not null references companies(id) on delete cascade,
   customer_id        uuid not null references customers(id),
-  quotation_id       uuid not null references quotations(id),
+  title              text not null,
+  quotation_id       uuid references quotations(id),
+  customer_po_attachment_path text,
+  customer_po_attachment_name text,
   so_number          text not null,
   customer_po_number text,
   status             so_status not null default 'created',
@@ -505,6 +531,7 @@ create table invoices (
   id              uuid primary key default gen_random_uuid(),
   company_id      uuid not null references companies(id) on delete cascade,
   customer_id     uuid not null references customers(id),
+  title           text not null,
   so_id           uuid references sales_orders(id),
   invoice_number  text not null,
   status          invoice_status not null default 'draft',
@@ -540,14 +567,22 @@ create table receipts (
   payment_mode     payment_mode not null,
   reference_number text,
   amount           numeric(14,2) not null,
+  amount_received  numeric(14,2),
+  tds_amount      numeric(14,2) not null default 0,
+  discount_amount numeric(14,2) not null default 0,
+  delta_treatment text,
   received_by      uuid references employees(id),
-  received_at      timestamptz not null default now()
+  received_at      timestamptz not null default now(),
+  journal_id       uuid
 );
 
 create table expense_claims (
   id                       uuid primary key default gen_random_uuid(),
   employee_id              uuid not null references employees(id) on delete cascade,
   company_id               uuid not null references companies(id) on delete cascade,
+  claim_name               text not null,
+  claim_date               date not null,
+  claim_notes              text,
   status                   expense_claim_status not null default 'draft',
   required_approval_levels smallint,
   total_amount             numeric(14,2) not null default 0,
@@ -574,7 +609,12 @@ create table expense_payments (
   payment_mode     payment_mode not null,
   reference_number text,
   paid_by          uuid references employees(id),
-  paid_at          timestamptz not null default now()
+  paid_at          timestamptz not null default now(),
+  ledger_entry_ids jsonb not null default '[]'::jsonb,
+  journal_id uuid,
+  bank_statement_row_id uuid,
+  reimbursement_journal_id uuid,
+  notes            text
 );
 
 create table ledger_entries (
@@ -589,6 +629,9 @@ create table ledger_entries (
   payment_mode     payment_mode,
   reference_number text,
   description      text,
+  notes            text,
+  journal_id       uuid,
+  journal_line     text,
   entry_date       date not null default current_date,
   created_by       uuid references employees(id),
   created_at       timestamptz not null default now()
@@ -618,7 +661,9 @@ create table bank_statement_rows (
   status                 bank_row_status not null default 'pending',
   assigned_account_head_id uuid references account_heads(id),
   ledger_entry_id        uuid references ledger_entries(id),
+  matched_expense_claim_id uuid references expense_claims(id),
   notes                  text,
+  journal_id             uuid,
   created_at             timestamptz not null default now()
 );
 
@@ -632,7 +677,8 @@ create table salary_payments (
   reference_number  text,
   paid_for_period   text,
   paid_by           uuid references employees(id),
-  paid_at           timestamptz not null default now()
+  paid_at           timestamptz not null default now(),
+  journal_id        uuid
 );
 
 -- ----------------------------------------------------------------------------
@@ -911,6 +957,7 @@ begin
       (new.id, 'Accounts Payable (Creditors)', 'liability', true),
       (new.id, 'GST Payable', 'liability', true),
       (new.id, 'Owner''s Capital', 'equity', true),
+      (new.id, 'Opening Balance Equity', 'equity', true),
       (new.id, 'Sales Income', 'income', true),
       (new.id, 'Other Income', 'income', true);
 
@@ -954,6 +1001,23 @@ end;
 $$;
 create trigger trg_vendor_party_account before insert on vendors
   for each row execute function create_vendor_party_account();
+
+create or replace function sync_vendor_party_account() returns trigger
+language plpgsql as $$
+begin
+  if new.party_account_head_id is not null and new.name is distinct from old.name then
+    update account_heads
+    set name = 'Accounts Payable — ' || new.name
+    where id = new.party_account_head_id
+      and company_id = new.company_id
+      and is_party_account = true
+      and party_type = 'vendor';
+  end if;
+  return new;
+end;
+$$;
+create trigger trg_sync_vendor_party_account after update of name on vendors
+  for each row execute function sync_vendor_party_account();
 
 create or replace function create_customer_party_account() returns trigger
 language plpgsql as $$
@@ -1064,7 +1128,9 @@ insert into storage.buckets (id, name, public) values
   ('employee-photos', 'employee-photos', true),
   ('expense-receipts', 'expense-receipts', false),
   ('generated-pdfs', 'generated-pdfs', false),
-  ('bank-statements', 'bank-statements', false)
+  ('bank-statements', 'bank-statements', false),
+  ('sales-order-documents', 'sales-order-documents', false),
+  ('purchase-order-documents', 'purchase-order-documents', false)
 on conflict (id) do nothing;
 
 -- company-logos / employee-photos: public read, company-scoped write
@@ -1081,7 +1147,7 @@ create policy "employee_photos_write" on storage.objects for insert with check (
 do $$
 declare b text;
 begin
-  foreach b in array array['employee-documents','expense-receipts','generated-pdfs','bank-statements'] loop
+  foreach b in array array['employee-documents','expense-receipts','generated-pdfs','bank-statements','sales-order-documents','purchase-order-documents'] loop
     execute format($f$
       create policy "%1$s_rw" on storage.objects for all
       using (bucket_id = '%1$s' and (storage.foldername(name))[1] = auth_company_id()::text)

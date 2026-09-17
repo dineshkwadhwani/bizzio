@@ -12,11 +12,14 @@ const TOGGLES = [
   { key: "raise_expense", label: "Raise Expense for Reimbursement" },
   { key: "manage_vendors", label: "Manage Vendors (Finance)" },
   { key: "create_po", label: "Create PO (Finance)" },
+  { key: "purchase_cycle", label: "Purchase Cycle (PO & Payments)" },
   { key: "manage_customers", label: "Manage Customers (Finance)" },
   { key: "create_so", label: "Create SO (Finance)" },
   { key: "generate_invoice", label: "Generate Invoice (Finance)" },
+  { key: "sales_cycle", label: "Sales Cycle (Quotation, SO & Invoice)" },
   { key: "record_other_income", label: "Record Other Income (Finance)" },
-  { key: "approve_pay_expenses", label: "Approve/Pay Expenses (Finance)" }
+  { key: "approve_pay_expenses", label: "Approve/Pay Expenses (Finance)" },
+  { key: "finance_reports", label: "Finance Reports (Finance Manager)" }
 ];
 
 export default function PermissionTemplatesPage() {
@@ -24,6 +27,10 @@ export default function PermissionTemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [name, setName] = useState("");
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editToggles, setEditToggles] = useState<Record<string, boolean>>({});
+  const [editError, setEditError] = useState<string | null>(null);
 
   async function load() {
     const { data } = await supabase.from("permission_templates").select("*").order("name");
@@ -39,6 +46,30 @@ export default function PermissionTemplatesPage() {
     await supabase.from("permission_templates").insert({ name, toggles, company_id: userRow?.company_id });
     setName("");
     setToggles({});
+    load();
+  }
+
+  function startEdit(template: any) {
+    setEditingId(template.id);
+    setEditName(template.name);
+    setEditToggles(template.toggles ?? {});
+    setEditError(null);
+  }
+
+  async function saveEdit(templateId: string) {
+    if (!editName.trim()) {
+      setEditError("Template name is required.");
+      return;
+    }
+    const { error } = await supabase
+      .from("permission_templates")
+      .update({ name: editName.trim(), toggles: editToggles })
+      .eq("id", templateId);
+    if (error) {
+      setEditError("Could not save the permission template.");
+      return;
+    }
+    setEditingId(null);
     load();
   }
 
@@ -73,12 +104,39 @@ export default function PermissionTemplatesPage() {
       <div className="mt-6 grid gap-4">
         {templates.map((t) => (
           <div key={t.id} className="card">
-            <h3 className="font-semibold text-ink-900">{t.name}</h3>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {Object.entries(t.toggles ?? {}).filter(([, v]) => v).map(([k]) => (
-                <span key={k} className="badge bg-ink-100 text-ink-600">{k}</span>
-              ))}
-            </div>
+            {editingId === t.id ? (
+              <div className="space-y-4">
+                <div>
+                  <label className="label" htmlFor={`edit-template-name-${t.id}`}>Template Name</label>
+                  <input id={`edit-template-name-${t.id}`} className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+                  {TOGGLES.map((toggle) => (
+                    <label key={toggle.key} className="flex items-start gap-2">
+                      <input type="checkbox" checked={!!editToggles[toggle.key]} onChange={(e) => setEditToggles((prev) => ({ ...prev, [toggle.key]: e.target.checked }))} />
+                      <span>{toggle.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {editError && <p className="text-sm text-red-600">{editError}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn-primary" onClick={() => void saveEdit(t.id)}>Save Changes</button>
+                  <button type="button" className="btn-secondary" onClick={() => setEditingId(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <h3 className="font-semibold text-ink-900">{t.name}</h3>
+                  <button type="button" className="btn-secondary px-3 py-1.5 text-sm" onClick={() => startEdit(t)}>Edit</button>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {Object.entries(t.toggles ?? {}).filter(([, v]) => v).map(([k]) => (
+                    <span key={k} className="badge bg-ink-100 text-ink-600">{k}</span>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         ))}
       </div>

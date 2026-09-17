@@ -108,7 +108,7 @@ async function handleExpenseDecision(supabase: any, step: any, decision: string,
     return;
   }
 
-  await supabase.from("expense_claims").update({ status: "approved" }).eq("id", claim.id);
+  await supabase.from("expense_claims").update({ status: "ready_for_payment" }).eq("id", claim.id);
   if (claim.employee?.user_id) {
     await notifyEmployeeById(claim.employee_id, {
       type: "expense_claim_decision",

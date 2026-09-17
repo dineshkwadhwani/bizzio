@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { Search } from "lucide-react";
 
 type Card = {
@@ -12,25 +11,19 @@ type Card = {
 };
 
 export default function DirectoryPage() {
-  const supabase = createClient();
   const [people, setPeople] = useState<Card[]>([]);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("employees")
-      .select("id, name, email, phone, profile_photo_url, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
-      .eq("status", "active")
-      .order("name")
-      .then(({ data, error: queryError }) => {
-        if (queryError) {
-          setError("Could not load the team directory.");
-          return;
-        }
-        setPeople((data as any) ?? []);
-      });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    fetch("/api/app/directory", { cache: "no-store" })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(typeof result.error === "string" ? result.error : "Could not load the team directory.");
+        setPeople((result.employees as Card[]) ?? []);
+      })
+      .catch((loadError: Error) => setError(loadError.message));
+  }, []);
 
   const filtered = people.filter((p) =>
     [p.name, p.email, p.phone, p.departments?.name, p.titles?.name].some((v) => v?.toLowerCase().includes(q.toLowerCase()))

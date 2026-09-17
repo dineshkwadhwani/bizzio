@@ -10,6 +10,7 @@ import {
   CheckSquare,
   Clock,
   CreditCard,
+  ChevronDown,
   FileText,
   GitBranch,
   ImageIcon,
@@ -56,7 +57,7 @@ const NAV_ICONS = {
   ScrollText
 } as const;
 
-export type NavItem = { href: string; label: string; icon: keyof typeof NAV_ICONS };
+export type NavItem = { href: string; label: string; icon: keyof typeof NAV_ICONS; section?: string };
 
 export function DashboardShell({
   navItems,
@@ -70,6 +71,7 @@ export function DashboardShell({
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [openSection, setOpenSection] = useState<string | null>(navItems[0]?.section ?? null);
   const [identity, setIdentity] = useState<{ name: string; email: string; role: string } | null>(null);
 
   useEffect(() => {
@@ -89,6 +91,13 @@ export function DashboardShell({
 
   const initials = identity?.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "U";
   const roleLabel = identity?.role.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) || "";
+  const sections = navItems.reduce<Array<{ name: string; items: NavItem[] }>>((groups, item) => {
+    const name = item.section ?? "Menu";
+    const group = groups.find((entry) => entry.name === name);
+    if (group) group.items.push(item);
+    else groups.push({ name, items: [item] });
+    return groups;
+  }, []);
 
   async function handleLogout() {
     const supabase = createClient();
@@ -99,9 +108,7 @@ export function DashboardShell({
   const sidebar = (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-5 py-5">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
-          B
-        </span>
+        <img src="/favicon.svg" alt="Bizzio" className="h-8 w-8 rounded-lg" />
         <span className="text-lg font-bold text-ink-900">
           Bizzio<span className="text-brand-500">.online</span>
         </span>
@@ -109,25 +116,23 @@ export function DashboardShell({
       <p className="px-5 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-400">
         {title}
       </p>
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {navItems.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(item.href + "/");
-          const Icon = NAV_ICONS[item.icon];
+      <nav className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3">
+        {sections.map((section) => {
+          const open = openSection === section.name;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setMobileOpen(false)}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
-                active
-                  ? "bg-brand-50 text-brand-700"
-                  : "text-ink-600 hover:bg-ink-50 hover:text-ink-900"
-              )}
-            >
-              <Icon size={18} />
-              {item.label}
-            </Link>
+            <div key={section.name}>
+              <button type="button" onClick={() => setOpenSection(open ? null : section.name)} className="flex w-full items-center justify-between px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+                {section.name}
+                <ChevronDown size={14} className={cn("transition-transform", !open && "-rotate-90")} />
+              </button>
+              {open && <div className="mt-1 space-y-1">
+                {section.items.map((item) => {
+                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const Icon = NAV_ICONS[item.icon];
+                  return <Link key={item.href} href={item.href} prefetch={false} onClick={() => setMobileOpen(false)} className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition", active ? "bg-brand-50 text-brand-700" : "text-ink-600 hover:bg-ink-50 hover:text-ink-900")}><Icon size={18} />{item.label}</Link>;
+                })}
+              </div>}
+            </div>
           );
         })}
       </nav>
@@ -161,7 +166,8 @@ export function DashboardShell({
 
       {/* Mobile top bar + slide-out */}
       <div className="flex items-center justify-between border-b border-ink-100 bg-white px-4 py-3 md:hidden">
-        <span className="text-lg font-bold text-ink-900">
+        <span className="flex items-center gap-2 text-lg font-bold text-ink-900">
+          <img src="/favicon.svg" alt="Bizzio" className="h-7 w-7 rounded-lg" />
           Bizzio<span className="text-brand-500">.online</span>
         </span>
         <div className="flex items-center gap-3">

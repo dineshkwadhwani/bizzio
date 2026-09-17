@@ -80,7 +80,8 @@ function LoginForm() {
     <main className="flex min-h-screen items-center justify-center bg-ink-50 px-4">
       <div className="card w-full max-w-md">
         <div className="mb-6 text-center">
-          <Link href="/" className="text-xl font-bold text-ink-900">
+          <Link href="/" className="inline-flex items-center gap-2 text-xl font-bold text-ink-900">
+            <img src="/favicon.svg" alt="Bizzio" className="h-8 w-8 rounded-lg" />
             Bizzio<span className="text-brand-500">.online</span>
           </Link>
           <p className="mt-2 text-sm text-ink-500">Log in to your account</p>

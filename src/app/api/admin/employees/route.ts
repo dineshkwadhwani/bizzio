@@ -8,6 +8,7 @@ import { sendEmail, emailTemplates } from "@/lib/resend";
 const EmployeeSchema = z.object({
   name: z.string().min(2),
   email: z.string().email(),
+  employee_type: z.enum(["permanent", "contractor"]).default("permanent"),
   phone: z.string().optional(),
   dob: z.string().optional(),
   gender: z.string().optional(),
@@ -53,6 +54,17 @@ export async function POST(request: Request) {
 
   const { data: company } = await admin.from("companies").select("name").eq("id", companyId).single();
 
+  let permissionTemplateId: string | null = null;
+  if (data.title_id) {
+    const { data: title } = await admin
+      .from("titles")
+      .select("default_permission_template_id")
+      .eq("id", data.title_id)
+      .eq("company_id", companyId)
+      .single();
+    permissionTemplateId = title?.default_permission_template_id ?? null;
+  }
+
   const temporaryPassword = randomBytes(18).toString("base64url");
 
   // Auto-generate employee_code: EMP-0001, EMP-0002, ...
@@ -89,7 +101,8 @@ export async function POST(request: Request) {
       reporting_manager_id: is_root ? null : data.reporting_manager_id,
       company_id: companyId,
       user_id: authUser.user.id,
-      employee_code: employeeCode
+      employee_code: employeeCode,
+      permission_template_id: permissionTemplateId
     })
     .select()
     .single();

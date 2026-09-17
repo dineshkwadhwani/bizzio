@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 
 const VendorUpdateSchema = z.object({
   name: z.string().min(2).optional(),
+  bank_account_name: z.string().optional().nullable(),
   gstin: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   state: z.string().optional().nullable(),

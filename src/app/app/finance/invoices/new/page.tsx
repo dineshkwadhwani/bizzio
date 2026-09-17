@@ -14,7 +14,10 @@ const INITIAL_LINE = {
 export default function NewInvoicePage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
+  const [salesOrders, setSalesOrders] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [title, setTitle] = useState("");
+  const [salesOrderId, setSalesOrderId] = useState("");
   const [lines, setLines] = useState<any[]>([{ ...INITIAL_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,6 +34,7 @@ export default function NewInvoicePage() {
       if (json[0]) setCustomerId(json[0].id);
     }
     loadCustomers();
+    fetch("/api/app/finance/sales-orders").then((res) => res.json()).then((json) => setSalesOrders((json || []).filter((order: any) => order.status !== "invoiced")));
   }, []);
 
   function updateLine(index: number, key: string, value: string | number) {
@@ -39,6 +43,17 @@ export default function NewInvoicePage() {
 
   function addLine() {
     setLines((prev) => [...prev, { ...INITIAL_LINE }]);
+  }
+
+  async function selectSalesOrder(id: string) {
+    setSalesOrderId(id);
+    if (!id) { setTitle(""); setLines([{ ...INITIAL_LINE }]); return; }
+    const res = await fetch(`/api/app/finance/sales-orders/${id}`);
+    const json = await res.json();
+    if (!res.ok) { setError(json.error || "Unable to load sales order."); return; }
+    setTitle(json.salesOrder.title || "");
+    setCustomerId(json.salesOrder.customer_id);
+    setLines((json.lineItems || []).map((line: any) => ({ description: line.description, qty: Number(line.qty), rate: Number(line.rate), gst_percent: Number(line.gst_percent), gst_type: line.gst_type })));
   }
 
   function removeLine(index: number) {
@@ -51,7 +66,9 @@ export default function NewInvoicePage() {
     setLoading(true);
 
     const payload = {
+      title,
       customer_id: customerId,
+      so_id: salesOrderId || null,
       status: "draft",
       lines: lines.map((line) => ({
         description: line.description,
@@ -84,8 +101,20 @@ export default function NewInvoicePage() {
       <h1 className="text-2xl font-bold text-ink-900">Create Invoice</h1>
       <form onSubmit={submit} className="card mt-6 space-y-6">
         <div>
+          <label className="label">Invoice title</label>
+          <input className="input" placeholder="e.g. March consulting invoice" value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </div>
+        <div>
+          <label className="label">Create from Sales Order (optional)</label>
+          <select className="input" value={salesOrderId} onChange={(e) => void selectSalesOrder(e.target.value)}>
+            <option value="">Enter items manually</option>
+            {salesOrders.map((order) => <option key={order.id} value={order.id}>{order.so_number} — {order.customer?.name}</option>)}
+          </select>
+        </div>
+
+        <div>
           <label className="label">Customer</label>
-          <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
+          <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(salesOrderId)}>
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>{customer.name}</option>
             ))}

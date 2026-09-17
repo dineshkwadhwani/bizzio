@@ -15,6 +15,7 @@ export default function NewQuotationPage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState("");
+  const [title, setTitle] = useState("");
   const [lines, setLines] = useState<any[]>([{ ...INITIAL_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +52,7 @@ export default function NewQuotationPage() {
     setLoading(true);
 
     const payload = {
+      title,
       customer_id: customerId,
       status: "draft",
       lines: lines.map((line) => ({
@@ -83,6 +85,10 @@ export default function NewQuotationPage() {
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold text-ink-900">Create Quotation</h1>
       <form onSubmit={submit} className="card mt-6 space-y-6">
+        <div>
+          <label className="label">Quotation title</label>
+          <input className="input" placeholder="e.g. Office catering proposal" value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </div>
         <div>
           <label className="label">Customer</label>
           <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>

@@ -26,7 +26,7 @@ export default async function AdHocEntriesPage() {
     .from("ledger_entries")
     .select("*, account_head:account_heads(id, name, type, is_party_account, party_type)")
     .eq("company_id", employee.company_id)
-    .in("source_type", ["adhoc_expense", "adhoc_income"])
+    .in("source_type", ["adhoc_expense", "adhoc_income", "opening_balance", "gst_payment"])
     .order("entry_date", { ascending: false })
     .order("created_at", { ascending: false });
 
@@ -41,22 +41,35 @@ export default async function AdHocEntriesPage() {
 
       <div className="card mt-6 p-0">
         <div className="divide-y divide-ink-50">
-          {entries?.map((entry: any) => {
+          {(Array.from((entries ?? []).reduce((groups, entry: any) => {
+            const key = entry.journal_id || entry.id;
+            const group = groups.get(key) || [];
+            group.push(entry);
+            groups.set(key, group);
+            return groups;
+          }, new Map<string, any[]>()).values()) as any[]).map((group: any[]) => {
+            const entry = group.find((item) => ["Expense", "Income", "Opening asset balance"].includes(item.journal_line)) || group[0];
+            const isOpening = entry.source_type === "opening_balance";
+            const isGstPayment = entry.source_type === "gst_payment";
             const isExpense = entry.source_type === "adhoc_expense";
             return (
-              <div key={entry.id} className="flex items-center justify-between px-4 py-3 text-sm">
+              <div key={entry.journal_id || entry.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
                 <div>
-                  <p className="font-medium text-ink-800">{isExpense ? "Expense" : "Income"}</p>
+                  <p className="font-medium text-ink-800">{isOpening ? "Opening Balance" : isGstPayment ? "GST Payment" : isExpense ? "Expense" : "Income"}</p>
                   <p className="text-ink-400">{entry.account_head?.name || "Unknown account"}</p>
-                  <p className="text-xs text-ink-400">{entry.entry_date} · {entry.payment_mode || "cash"}</p>
+                  <p className="text-xs text-ink-400">{entry.entry_date} · {isOpening ? "Opening Balance Equity" : entry.payment_mode || "cash"}</p>
+                  {entry.description && <p className="mt-1 max-w-lg text-xs text-ink-500">{entry.description}</p>}
                 </div>
-                <div className="text-right">
-                  <p className={`font-semibold ${isExpense ? "text-red-600" : "text-green-600"}`}>
-                    {isExpense ? "-" : "+"}₹{Number(entry.amount || 0).toFixed(2)}
-                  </p>
-                  <span className={`badge ${entry.is_accountable ? "bg-green-50 text-green-700" : "bg-ink-100 text-ink-500"}`}>
-                    {entry.is_accountable ? "Accountable" : "Unaccounted"}
-                  </span>
+                <div className="flex items-center gap-3 text-right">
+                  <div>
+                    <p className={`font-semibold ${isOpening || isExpense || isGstPayment ? "text-red-600" : "text-green-600"}`}>
+                      {isOpening || isExpense || isGstPayment ? "-" : "+"}₹{Number(entry.amount || 0).toFixed(2)}
+                    </p>
+                    <span className={`badge ${entry.is_accountable ? "bg-green-50 text-green-700" : "bg-ink-100 text-ink-500"}`}>
+                      {entry.is_accountable ? "Accountable" : "Unaccounted"}
+                    </span>
+                  </div>
+                  <Link href={`/app/finance/adhoc-entries/edit?journal_id=${entry.journal_id || entry.id}`} className="btn-secondary px-3 py-2">Edit</Link>
                 </div>
               </div>
             );

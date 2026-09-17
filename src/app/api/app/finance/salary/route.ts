@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createLedgerEntry } from "@/lib/finance-ledger";
+import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
 
 const SalaryPaymentSchema = z.object({
   employee_id: z.string().min(1),
@@ -124,10 +124,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Salaries account head is missing for this company." }, { status: 400 });
     }
 
-    const { data: ledgerEntry, error: ledgerError } = await createLedgerEntry(supabase, {
+    const { data: paymentAccount, error: paymentAccountError } = await findPaymentAccount(supabase, companyId, parsed.data.payment_mode);
+    if (paymentAccountError || !paymentAccount) return NextResponse.json({ error: "The selected payment account is missing or inactive." }, { status: 400 });
+    const { data: ledgerEntries, error: ledgerError, journalId } = await createBalancedJournal(supabase, {
       companyId,
-      accountHeadId: salariesHead.id,
-      amount,
+      lines: [
+        { accountHeadId: salariesHead.id, amount, entryType: "debit", label: "Salary expense" },
+        { accountHeadId: paymentAccount.id, amount, entryType: "credit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }
+      ],
       paymentMode: parsed.data.payment_mode,
       referenceNumber: parsed.data.reference_number?.trim() || null,
       description: `Salary paid for ${employee.name} — ${parsed.data.paid_for_period}`,
@@ -136,17 +140,15 @@ export async function POST(request: Request) {
       sourceType: "salary_paid",
       sourceId: null
     });
-
-    if (ledgerError) {
-      return NextResponse.json({ error: ledgerError.message }, { status: 500 });
-    }
+    if (ledgerError || !ledgerEntries?.length) return NextResponse.json({ error: ledgerError?.message ?? "Could not create balanced journal entry." }, { status: 500 });
 
     const { data: salaryPayment, error: paymentError } = await supabase
       .from("salary_payments")
       .insert({
         company_id: companyId,
         employee_id: employee.id,
-        ledger_entry_id: ledgerEntry.id,
+        ledger_entry_id: ledgerEntries[0].id,
+        journal_id: journalId,
         amount,
         payment_mode: parsed.data.payment_mode,
         reference_number: parsed.data.reference_number?.trim() || null,
@@ -160,7 +162,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: paymentError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ salaryPayment, ledgerEntry }, { status: 201 });
+    return NextResponse.json({ salaryPayment, ledgerEntries }, { status: 201 });
   } catch (error) {
     return error as Response;
   }

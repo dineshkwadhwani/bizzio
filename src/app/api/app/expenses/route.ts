@@ -12,7 +12,12 @@ const LineItem = z.object({
   notes: z.string().optional(),
   receipt_url: z.string().optional()
 });
-const Schema = z.object({ line_items: z.array(LineItem).min(1) });
+const Schema = z.object({
+  claim_name: z.string().trim().min(1),
+  claim_date: z.string().date(),
+  claim_notes: z.string().trim().optional(),
+  line_items: z.array(LineItem).min(1)
+});
 
 // Module 5 §1–§2 — multi-line-item claim; approval depth = MAX(category levels).
 export async function POST(request: Request) {
@@ -33,12 +38,20 @@ export async function POST(request: Request) {
     .eq("user_id", guard.user.id)
     .single();
   if (!employee) return NextResponse.json({ error: "Employee record not found" }, { status: 404 });
-  if (!employee.reporting_manager_id) {
-    return NextResponse.json({ error: "Root employees have no manager to approve expenses." }, { status: 400 });
-  }
+  const isRootEmployee = !employee.reporting_manager_id;
 
   const headIds = parsed.data.line_items.map((li) => li.account_head_id);
-  const { data: heads } = await supabase.from("account_heads").select("id, approval_levels").in("id", headIds);
+  const { data: heads, error: headsError } = await supabase
+    .from("account_heads")
+    .select("id, approval_levels, type, is_party_account")
+    .eq("company_id", employee.company_id)
+    .in("id", headIds)
+    .in("type", ["expense", "asset"])
+    .eq("is_active", true)
+    .eq("is_party_account", false);
+  if (headsError || !heads || heads.length !== new Set(headIds).size) {
+    return NextResponse.json({ error: "Each claim category must be an active expense or asset account." }, { status: 400 });
+  }
   const requiredLevels = Math.max(1, ...(heads ?? []).map((h) => h.approval_levels ?? 1));
   const totalAmount = parsed.data.line_items.reduce((sum, li) => sum + li.amount, 0);
 
@@ -47,7 +60,10 @@ export async function POST(request: Request) {
     .insert({
       employee_id: employee.id,
       company_id: employee.company_id,
-      status: "submitted",
+      claim_name: parsed.data.claim_name,
+      claim_date: parsed.data.claim_date,
+      claim_notes: parsed.data.claim_notes || null,
+      status: isRootEmployee ? "ready_for_payment" : "submitted",
       required_approval_levels: requiredLevels,
       total_amount: totalAmount,
       submitted_at: new Date().toISOString()
@@ -60,29 +76,31 @@ export async function POST(request: Request) {
     parsed.data.line_items.map((li) => ({ ...li, claim_id: claim.id, company_id: employee.company_id }))
   );
 
-  await supabase.from("approval_steps").insert({
-    entity_type: "expense_claim",
-    entity_id: claim.id,
-    level: 1,
-    approver_employee_id: employee.reporting_manager_id,
-    status: "pending"
-  });
-
-  const { data: manager } = await supabase
-    .from("employees")
-    .select("id, user_id")
-    .eq("id", employee.reporting_manager_id)
-    .single();
-
-  if (manager?.user_id) {
-    await notifyEmployeeById(employee.reporting_manager_id, {
-      type: "expense_claim_submitted",
-      title: "Expense claim submitted",
-      body: `An expense claim for ${formatINR(totalAmount)} is awaiting your approval.`,
-      entityType: "expense_claim",
-      entityId: claim.id
+  if (!isRootEmployee) {
+    await supabase.from("approval_steps").insert({
+      entity_type: "expense_claim",
+      entity_id: claim.id,
+      level: 1,
+      approver_employee_id: employee.reporting_manager_id,
+      status: "pending"
     });
+
+    const { data: manager } = await supabase
+      .from("employees")
+      .select("id, user_id")
+      .eq("id", employee.reporting_manager_id)
+      .single();
+
+    if (manager?.user_id) {
+      await notifyEmployeeById(employee.reporting_manager_id, {
+        type: "expense_claim_submitted",
+        title: "Expense claim submitted",
+        body: `An expense claim for ${formatINR(totalAmount)} is awaiting your approval.`,
+        entityType: "expense_claim",
+        entityId: claim.id
+      });
+    }
   }
 
-  return NextResponse.json({ claim });
+  return NextResponse.json({ claim, autoApproved: isRootEmployee });
 }

@@ -42,7 +42,8 @@ export default async function InvoicesPage() {
           {invoices?.map((invoice: any) => (
             <Link key={invoice.id} href={`/app/finance/invoices/${invoice.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
               <div>
-                <p className="font-medium text-ink-800">{invoice.invoice_number}</p>
+                <p className="font-medium text-ink-800">{invoice.title}</p>
+                <p className="text-xs text-ink-400">{invoice.invoice_number}</p>
                 <p className="text-ink-400">{invoice.customer?.name || "Unknown customer"}</p>
               </div>
               <div className="text-right">

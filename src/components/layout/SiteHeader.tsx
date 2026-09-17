@@ -15,12 +15,10 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-ink-100 bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-50 border-b border-ink-100 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
-            B
-          </span>
+          <img src="/favicon.svg" alt="Bizzio" className="h-8 w-8 rounded-lg" />
           <span className="text-lg font-bold tracking-tight text-ink-900">
             Bizzio<span className="text-brand-500">.online</span>
           </span>
@@ -59,7 +57,7 @@ export function SiteHeader() {
             className="absolute inset-0 bg-ink-900/40"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 top-0 flex h-full w-72 flex-col bg-white p-6 shadow-xl">
+          <div className="absolute right-0 top-0 z-10 flex h-full w-72 flex-col bg-white p-6 shadow-xl [isolation:isolate]">
             <div className="mb-8 flex items-center justify-between">
               <span className="text-lg font-bold text-ink-900">Menu</span>
               <button onClick={() => setOpen(false)} aria-label="Close menu">

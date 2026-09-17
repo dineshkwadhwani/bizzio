@@ -12,6 +12,7 @@ const LineItemSchema = z.object({
 });
 
 const PoSchema = z.object({
+  title: z.string().trim().min(1),
   vendor_id: z.string().min(1),
   status: z.enum(["draft", "reviewed", "sent"]).optional(),
   lines: z.array(LineItemSchema).min(1)
@@ -120,6 +121,7 @@ export async function POST(request: Request) {
       .insert({
         company_id: guard.employee.company_id,
         vendor_id: parsed.data.vendor_id,
+        title: parsed.data.title,
         po_number: poNumber,
         status,
         created_by: guard.employee.id,

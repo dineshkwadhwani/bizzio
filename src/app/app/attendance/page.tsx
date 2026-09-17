@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
 
@@ -187,7 +188,7 @@ export default function AttendancePage() {
       if (!res.ok) { setError(typeof json.error === "string" ? json.error : "Could not submit leave request."); return; }
       await load();
       setSelectedDate(null);
-      setMessage("Leave request submitted successfully.");
+      setMessage(json.autoApproved ? "Leave approved automatically for the root employee." : "Leave request submitted successfully.");
     } catch {
       setError("Could not submit leave request. Please check your connection and try again.");
     } finally {
@@ -199,9 +200,12 @@ export default function AttendancePage() {
     <div className="max-w-3xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-ink-900">Attendance</h1>
-        <select aria-label="Attendance month" className="input w-auto" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
-          {monthOptions.map((month) => <option key={month} value={month}>{monthLabel(month)}</option>)}
-        </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/app/leave/new" className="btn-secondary">Apply for Leave</Link>
+          <select aria-label="Attendance month" className="input w-auto" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
+            {monthOptions.map((month) => <option key={month} value={month}>{monthLabel(month)}</option>)}
+          </select>
+        </div>
       </div>
       {message && <p className="mt-4 rounded-lg bg-green-100 px-4 py-3 text-sm text-green-800" role="status">{message}</p>}
 

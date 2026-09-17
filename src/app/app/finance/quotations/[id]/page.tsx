@@ -66,7 +66,8 @@ export default function QuotationDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm uppercase tracking-wide text-ink-500">Quotation</p>
-          <h1 className="text-2xl font-bold text-ink-900">{data.quotation.quo_number}</h1>
+          <h1 className="text-2xl font-bold text-ink-900">{data.quotation.title}</h1>
+          <p className="text-sm text-ink-500">{data.quotation.quo_number}</p>
         </div>
         <span className={`badge ${data.quotation.status === "accepted" ? "bg-green-50 text-green-700" : data.quotation.status === "rejected" ? "bg-red-50 text-red-700" : data.quotation.status === "expired" ? "bg-amber-50 text-amber-700" : data.quotation.status === "sent" ? "bg-blue-50 text-blue-700" : data.quotation.status === "reviewed" ? "bg-amber-50 text-amber-700" : "bg-ink-100 text-ink-500"}`}>
           {statusLabel}

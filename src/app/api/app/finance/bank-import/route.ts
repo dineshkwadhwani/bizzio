@@ -58,6 +58,11 @@ async function detectPossibleDuplicates(supabase: ReturnType<typeof createClient
     };
   });
 
+  const { data: paidClaims } = await supabase
+    .from("expense_payments")
+    .select("claim_id, reference_number, paid_at, expense_claims(total_amount)")
+    .eq("company_id", companyId);
+
   const { data: pendingRows } = await supabase
     .from("bank_statement_rows")
     .select("id, row_date, ref_no, withdrawal, deposit")
@@ -74,10 +79,17 @@ async function detectPossibleDuplicates(supabase: ReturnType<typeof createClient
       return entry.row_date === row.row_date && entry.ref_no === refNo && entry.amount === amount;
     });
 
-    if (isDuplicate) {
+    const paidClaim = (paidClaims ?? []).find((payment: any) => {
+      const paidDate = payment.paid_at?.slice(0, 10);
+      const claimAmount = Number(payment.expense_claims?.total_amount || 0);
+      const referenceMatches = !payment.reference_number || !refNo || payment.reference_number.trim() === refNo;
+      return paidDate === row.row_date && claimAmount === amount && referenceMatches;
+    });
+
+    if (isDuplicate || paidClaim) {
       await supabase
         .from("bank_statement_rows")
-        .update({ status: "possible_duplicate", notes: "Possible duplicate of an already-posted import row." })
+        .update({ status: "possible_duplicate", matched_expense_claim_id: paidClaim?.claim_id ?? null, notes: paidClaim ? "Possible match to a paid expense claim. Reconcile instead of posting." : "Possible duplicate of an already-posted import row." })
         .eq("id", row.id);
     }
   }

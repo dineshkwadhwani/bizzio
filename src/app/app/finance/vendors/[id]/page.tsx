@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 const EMPTY = {
   id: "",
   name: "",
+  bank_account_name: "",
   gstin: "",
   address: "",
   state: "",
@@ -119,7 +120,11 @@ export default function VendorDetailPage() {
           <label className="label">Contact Email</label>
           <input type="email" className="input" value={form.contact_email ?? ""} onChange={(e) => update("contact_email", e.target.value)} />
         </div>
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
+          <div>
+            <label className="label">Bank Account Name</label>
+            <input className="input" value={form.bank_account_name ?? ""} onChange={(e) => update("bank_account_name", e.target.value)} placeholder="Account holder name" />
+          </div>
           <div>
             <label className="label">Bank Account No.</label>
             <input className="input" value={form.bank_account_no ?? ""} onChange={(e) => update("bank_account_no", e.target.value)} />

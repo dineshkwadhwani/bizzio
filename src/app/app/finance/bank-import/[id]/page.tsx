@@ -13,7 +13,7 @@ type BankRow = {
   withdrawal: number | string | null;
   deposit: number | string | null;
   balance_display: number | string | null;
-  status: "pending" | "posted" | "ignored" | "possible_duplicate";
+  status: "pending" | "posted" | "ignored" | "possible_duplicate" | "reconciled";
   assigned_account_head_id?: string | null;
   notes?: string | null;
 };
@@ -30,24 +30,38 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
 
   useEffect(() => {
     async function load() {
-      const [importRes, optionsRes, rowsRes] = await Promise.all([
+      const [importRes, optionsRes] = await Promise.all([
         fetch(`/api/app/finance/bank-import/${params.id}`),
-        fetch("/api/app/finance/ledger-entries?mode=account-options"),
-        fetch(`/api/app/finance/bank-import/${params.id}`)
+        fetch("/api/app/finance/ledger-entries?mode=account-options")
       ]);
 
-      if (!importRes.ok || !optionsRes.ok || !rowsRes.ok) {
-        setError("Unable to load this import batch.");
+      if (!importRes.ok || !optionsRes.ok) {
+        setError(importRes.status === 404 ? "This import batch could not be found." : "Unable to load this import batch. Please try again.");
         return;
       }
 
       const importJson = await importRes.json();
       const optionsJson = await optionsRes.json();
-      const rowsJson = await rowsRes.json();
-
       setImportRecord(importJson.importRecord || null);
-      setRows(rowsJson.rows || []);
       setAccountOptions(optionsJson.options || []);
+
+      const loadedRows = importJson.rows || [];
+      const defaultAccountId = optionsJson.options?.[0]?.id || "";
+      const rowsMissingCategory = defaultAccountId
+        ? loadedRows.filter((row: BankRow) => !row.assigned_account_head_id && !["posted", "reconciled", "ignored"].includes(row.status))
+        : [];
+      const rowsWithDefaults = defaultAccountId
+        ? loadedRows.map((row: BankRow) => row.assigned_account_head_id ? row : { ...row, assigned_account_head_id: defaultAccountId })
+        : loadedRows;
+      setRows(rowsWithDefaults);
+
+      if (rowsMissingCategory.length) {
+        await fetch(`/api/app/finance/bank-import/${params.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ row_ids: rowsMissingCategory.map((row: BankRow) => row.id), account_head_id: defaultAccountId })
+        });
+      }
     }
 
     load();
@@ -66,8 +80,41 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
     setSelectedIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   }
 
+  const allRowIds = rows.map((row) => row.id);
+  const allRowsSelected = allRowIds.length > 0 && allRowIds.every((id) => selectedIds.includes(id));
+  const postableRows = rows.filter((row) => !["posted", "reconciled", "ignored"].includes(row.status));
+
+  function toggleAllRows() {
+    setSelectedIds(allRowsSelected ? [] : allRowIds);
+  }
+
   function updateRowAccount(id: string, value: string) {
     setRows((current) => current.map((row) => row.id === id ? { ...row, assigned_account_head_id: value } : row));
+  }
+
+  async function saveRowAccount(id: string, value: string) {
+    updateRowAccount(id, value);
+    const response = await fetch(`/api/app/finance/bank-import/${params.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ row_ids: [id], account_head_id: value })
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      setError(typeof result.error === "string" ? result.error : "Unable to save category.");
+    }
+  }
+
+  async function saveRowNotes(id: string, value: string) {
+    const response = await fetch(`/api/app/finance/bank-import/${params.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ row_ids: [id], notes: value })
+    });
+    if (!response.ok) {
+      const result = await response.json().catch(() => ({}));
+      setError(typeof result.error === "string" ? result.error : "Unable to save note.");
+    }
   }
 
   async function bulkAssign() {
@@ -106,7 +153,12 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
     const res = await fetch(`/api/app/finance/bank-import/${params.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "post", row_ids: selectedIds, force })
+      body: JSON.stringify({
+        action: "post",
+        row_ids: selectedIds,
+        force,
+        account_head_ids: Object.fromEntries(selectedIds.map((id) => [id, rows.find((row) => row.id === id)?.assigned_account_head_id || ""]))
+      })
     });
 
     const json = await res.json();
@@ -117,7 +169,14 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
       return;
     }
 
-    setNotice(force ? "Selected rows were force-posted." : "Selected rows were posted successfully.");
+    const postedCount = Array.isArray(json.posted) ? json.posted.length : 0;
+    const skippedCount = Array.isArray(json.skipped) ? json.skipped.length : 0;
+    if (!postedCount) {
+      const reasons = Array.isArray(json.skipped) ? Array.from(new Set(json.skipped.map((item: { reason?: string }) => item.reason).filter(Boolean))).join(", ") : "";
+      setError(skippedCount ? `No rows were posted. ${skippedCount} selected row(s) were skipped${reasons ? ` (${reasons})` : ""}.` : "No rows were posted.");
+    } else {
+      setNotice(force ? `${postedCount} selected row(s) were force-posted${skippedCount ? `; ${skippedCount} skipped` : ""}.` : `${postedCount} selected row(s) were posted successfully${skippedCount ? `; ${skippedCount} skipped` : ""}.`);
+    }
     const refreshed = await fetch(`/api/app/finance/bank-import/${params.id}`);
     const refreshedJson = await refreshed.json();
     setRows(refreshedJson.rows || []);
@@ -150,6 +209,21 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
     setSelectedIds([]);
   }
 
+  async function reconcileSelected() {
+    if (!selectedIds.length) return;
+    setLoading(true);
+    setError(null);
+    const res = await fetch(`/api/app/finance/bank-import/${params.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reconcile", row_ids: selectedIds }) });
+    const json = await res.json().catch(() => ({}));
+    setLoading(false);
+    if (!res.ok) { setError(json.error || "Unable to reconcile selected rows."); return; }
+    setNotice(json.reconciled ? `${json.reconciled} bank row(s) reconciled to paid expense claims.` : "No matching paid expense claims were found.");
+    const refreshed = await fetch(`/api/app/finance/bank-import/${params.id}`);
+    const refreshedJson = await refreshed.json();
+    setRows(refreshedJson.rows || []);
+    setSelectedIds([]);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
@@ -164,24 +238,46 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
         <button type="button" className="btn-primary" onClick={bulkAssign} disabled={loading || !selectedIds.length}>Bulk assign</button>
         <button type="button" className="btn-primary" onClick={() => postSelected(false)} disabled={loading || !selectedIds.length}>Post selected</button>
         <button type="button" className="btn-secondary" onClick={() => postSelected(true)} disabled={loading || !selectedIds.length}>Force-post duplicates</button>
+        <button type="button" className="btn-secondary" onClick={() => void reconcileSelected()} disabled={loading || !selectedIds.length}>Reconcile paid claim</button>
         <button type="button" className="btn-secondary" onClick={ignoreSelected} disabled={loading || !selectedIds.length}>Ignore selected</button>
       </div>
 
       {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
       {notice && <p className="mt-4 text-sm text-green-700">{notice}</p>}
+      {!error && !rows.length && <p className="mt-4 text-sm text-ink-600">No transactions to post from this batch.</p>}
+      {!error && rows.length > 0 && !postableRows.length && <p className="mt-4 text-sm text-ink-600">No transactions to post from this batch. All transactions have already been processed.</p>}
 
-      <div className="card mt-6 p-0 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
+      <div className="card mt-6 overflow-hidden p-0">
+        <div className="space-y-3 p-3 md:hidden">
+          {rows.map((row) => {
+            const amount = Number(row.withdrawal || 0) > 0 ? Number(row.withdrawal || 0) : Number(row.deposit || 0);
+            const isCredit = Number(row.deposit || 0) > 0;
+            return <div key={row.id} className="rounded-lg border border-ink-100 p-3 text-sm">
+              <div className="flex min-w-0 items-start gap-2">
+                <input type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggleRow(row.id)} className="mt-1 shrink-0" />
+                <div className="min-w-0 flex-1"><p className="font-medium text-ink-800">{row.row_date || "—"} · ₹{Number(amount || 0).toFixed(2)} {isCredit ? "CR" : "DR"}</p><p className="mt-1 break-words text-ink-600">{row.particulars || "—"}</p><p className="mt-1 break-words text-xs text-ink-400">Ref: {row.ref_no || "—"} · Chq: {row.chq_no || "—"}</p></div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <AccountPicker options={accountOptions} value={row.assigned_account_head_id || ""} onChange={(value) => void saveRowAccount(row.id, value)} label="Category" />
+                <div><label className="label">Notes (optional)</label><input className="input" placeholder="Optional note" value={row.notes || ""} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, notes: event.target.value } : item))} onBlur={(event) => void saveRowNotes(row.id, event.target.value)} /></div>
+              </div>
+              <span className={`badge mt-2 ${row.status === "posted" || row.status === "reconciled" ? "bg-green-50 text-green-700" : row.status === "possible_duplicate" ? "bg-amber-50 text-amber-700" : row.status === "ignored" ? "bg-ink-100 text-ink-600" : "bg-blue-50 text-blue-700"}`}>{row.status}</span>
+            </div>;
+          })}
+          {!rows.length && <p className="px-1 py-8 text-center text-ink-400">No statement rows found in this batch.</p>}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full table-fixed text-left text-sm">
             <thead className="bg-ink-50 text-ink-600">
               <tr>
-                <th className="p-3"><input type="checkbox" aria-label="Select all" /></th>
+                <th className="p-3"><input type="checkbox" aria-label="Select all" checked={allRowsSelected} onChange={toggleAllRows} disabled={!allRowIds.length} /></th>
                 <th className="p-3">Date</th>
                 <th className="p-3">Particulars</th>
                 <th className="p-3">Ref No</th>
                 <th className="p-3">Chq No</th>
                 <th className="p-3">Amount</th>
                 <th className="p-3">Category</th>
+                <th className="p-3">Notes (optional)</th>
                 <th className="p-3">Status</th>
               </tr>
             </thead>
@@ -193,22 +289,23 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
                   <tr key={row.id} className="border-t border-ink-100 align-top">
                     <td className="p-3"><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={() => toggleRow(row.id)} /></td>
                     <td className="p-3">{row.row_date || "—"}</td>
-                    <td className="p-3 max-w-xs">{row.particulars || "—"}</td>
+                    <td className="max-w-xs break-words p-3">{row.particulars || "—"}</td>
                     <td className="p-3">{row.ref_no || "—"}</td>
                     <td className="p-3">{row.chq_no || "—"}</td>
                     <td className="p-3 font-medium">₹{Number(amount || 0).toFixed(2)} {isCredit ? "CR" : "DR"}</td>
                     <td className="p-3">
-                      <div className="min-w-[220px]">
+                      <div className="min-w-0">
                         <AccountPicker
                           options={accountOptions}
                           value={row.assigned_account_head_id || ""}
-                          onChange={(value) => updateRowAccount(row.id, value)}
+                          onChange={(value) => void saveRowAccount(row.id, value)}
                           label="Category"
                         />
                       </div>
                     </td>
+                    <td className="p-3"><input className="input w-full min-w-0" placeholder="Optional note" value={row.notes || ""} onChange={(event) => setRows((current) => current.map((item) => item.id === row.id ? { ...item, notes: event.target.value } : item))} onBlur={(event) => void saveRowNotes(row.id, event.target.value)} /></td>
                     <td className="p-3">
-                      <span className={`badge ${row.status === "posted" ? "bg-green-50 text-green-700" : row.status === "possible_duplicate" ? "bg-amber-50 text-amber-700" : row.status === "ignored" ? "bg-ink-100 text-ink-600" : "bg-blue-50 text-blue-700"}`}>
+                      <span className={`badge ${row.status === "posted" || row.status === "reconciled" ? "bg-green-50 text-green-700" : row.status === "possible_duplicate" ? "bg-amber-50 text-amber-700" : row.status === "ignored" ? "bg-ink-100 text-ink-600" : "bg-blue-50 text-blue-700"}`}>
                         {row.status}
                       </span>
                     </td>
@@ -218,7 +315,7 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
             </tbody>
           </table>
         </div>
-        {!rows.length && <p className="px-4 py-8 text-center text-ink-400">No statement rows found in this batch.</p>}
+        {!rows.length && <p className="hidden px-4 py-8 text-center text-ink-400 md:block">No statement rows found in this batch.</p>}
       </div>
     </div>
   );

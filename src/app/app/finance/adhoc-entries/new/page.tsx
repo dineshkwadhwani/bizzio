@@ -25,7 +25,7 @@ export default function NewAdHocEntryPage() {
 
   useEffect(() => {
     async function loadOptions() {
-      const res = await fetch("/api/app/finance/ledger-entries?mode=account-options");
+      const res = await fetch("/api/app/finance/ledger-entries?mode=account-options&include_balance_accounts=true");
       const json = await res.json();
       if (!res.ok) {
         setError(json.error || "Unable to load account options.");
@@ -39,7 +39,8 @@ export default function NewAdHocEntryPage() {
     loadOptions();
   }, []);
 
-  const filteredOptions = options.filter((option) => option.type === form.entry_type);
+  const optionType = form.entry_type === "opening_balance" ? "asset" : form.entry_type === "gst_payment" ? "liability" : form.entry_type;
+  const filteredOptions = options.filter((option) => option.type === optionType);
   const groupedOptions = useMemo(() => {
     const groups = new Map<string, AccountOption[]>();
     filteredOptions.forEach((option) => {
@@ -98,28 +99,32 @@ export default function NewAdHocEntryPage() {
               className="input"
               value={form.entry_type}
               onChange={(e) => {
-                const nextType = e.target.value as "expense" | "income";
-                const nextOption = filteredOptions.find((option) => option.type === nextType) ?? filteredOptions[0];
+                const nextType = e.target.value as "expense" | "income" | "opening_balance" | "gst_payment";
+                const nextOptionType = nextType === "opening_balance" ? "asset" : nextType === "gst_payment" ? "liability" : nextType;
+                const nextOption = options.find((option) => option.type === nextOptionType);
                 setForm((prev) => ({ ...prev, entry_type: nextType, account_id: nextOption ? nextOption.id : "" }));
               }}
             >
               <option value="expense">Expense</option>
               <option value="income">Income</option>
+              <option value="opening_balance">Opening Balance</option>
+              <option value="gst_payment">GST Payment</option>
             </select>
           </div>
 
           <div>
             <label className="label">Payment Mode</label>
-            <select className="input" value={form.payment_mode} onChange={(e) => updateField("payment_mode", e.target.value as any)}>
+            <select className="input" value={form.payment_mode} disabled={form.entry_type === "opening_balance"} onChange={(e) => updateField("payment_mode", e.target.value as any)}>
               <option value="cash">Cash</option>
               <option value="cheque">Cheque</option>
               <option value="bank_transfer">Bank Transfer</option>
             </select>
+            <p className="mt-1 text-xs text-ink-400">The matching Bank/Cash ledger line is created automatically.</p>
           </div>
         </div>
 
         <div>
-          <label className="label">Account</label>
+            <label className="label">{form.entry_type === "opening_balance" ? "Asset Account" : form.entry_type === "gst_payment" ? "GST Liability Account" : "Category Account"}</label>
           <select
             className="input"
             value={form.account_id}
