@@ -34,13 +34,28 @@ export async function POST(request: Request, { params }: { params: { id: string 
       .eq("is_party_account", false)
       .maybeSingle();
     if (reimbursementAccountError || !reimbursementAccount) return NextResponse.json({ error: "Employee Reimbursement Payable account is missing or inactive." }, { status: 400 });
-    const totalAmount = items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+    const invoiceTotal = Number(claim.total_amount || 0);
+    const totalAmount = Number(claim.reimbursement_amount ?? invoiceTotal);
+    if (totalAmount <= 0 || totalAmount > invoiceTotal) return NextResponse.json({ error: "The claim has an invalid reimbursement amount." }, { status: 400 });
+    const lineTotal = items.reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+    if (Math.abs(lineTotal - invoiceTotal) > 0.005) return NextResponse.json({ error: "The claim total does not match its line items." }, { status: 400 });
+    let allocated = 0;
+    const reimbursedLines = items.flatMap((item: any, index: number) => {
+      const amount = index === items.length - 1
+        ? Number((totalAmount - allocated).toFixed(2))
+        : Number((totalAmount * Number(item.amount) / invoiceTotal).toFixed(2));
+      allocated += amount;
+      return amount > 0 ? [{ accountHeadId: item.account_head_id, amount, entryType: "debit" as const, label: "Expense" }] : [];
+    });
     const journalNotes = claim.claim_notes || parsed.data.notes || null;
     const description = `Expense claim: ${claim.claim_name} — reimbursement to ${claim.employees?.name ?? "employee"}`;
+    const transactionEventId = crypto.randomUUID();
+    const receiptPath = items.find((item: any) => item.receipt_url)?.receipt_url || null;
+    const receiptName = receiptPath ? "Expense receipt" : null;
     const reimbursementPosting = await createBalancedJournal(supabase, {
       companyId: guard.employee.company_id,
       lines: [
-        ...items.map((item: any) => ({ accountHeadId: item.account_head_id, amount: Number(item.amount), entryType: "debit" as const, label: "Expense" })),
+        ...reimbursedLines,
         { accountHeadId: reimbursementAccount.id, amount: totalAmount, entryType: "credit" as const, label: "Employee Reimbursement Payable" }
       ],
       paymentMode: null,
@@ -50,7 +65,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
       entryDate: parsed.data.paid_at,
       createdBy: guard.employee.id,
       sourceType: "expense_claim",
-      sourceId: claim.id
+      sourceId: claim.id,
+      transactionEventId,
+      eventType: "expense_reimbursement",
+      attachmentPath: receiptPath,
+      attachmentName: receiptName,
+      attachmentBucket: "expense-receipts"
     });
     if (reimbursementPosting.error || !reimbursementPosting.data?.length) return NextResponse.json({ error: reimbursementPosting.error?.message ?? "Could not create reimbursement journal entry." }, { status: 500 });
     const paymentPosting = await createBalancedJournal(supabase, {
@@ -66,7 +86,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
       entryDate: parsed.data.paid_at,
       createdBy: guard.employee.id,
       sourceType: "expense_claim",
-      sourceId: claim.id
+      sourceId: claim.id,
+      transactionEventId,
+      eventType: "expense_reimbursement",
+      attachmentPath: receiptPath,
+      attachmentName: receiptName,
+      attachmentBucket: "expense-receipts"
     });
     if (paymentPosting.error || !paymentPosting.data?.length) {
       await supabase.from("ledger_entries").delete().eq("journal_id", reimbursementPosting.journalId);
@@ -74,7 +99,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
     const ledgerEntries = [...reimbursementPosting.data, ...paymentPosting.data];
     const ledgerEntryIds = ledgerEntries.map((entry: any) => entry.id);
-    const { error: paymentError } = await supabase.from("expense_payments").insert({ claim_id: claim.id, company_id: guard.employee.company_id, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number || null, paid_by: guard.employee.id, paid_at: `${parsed.data.paid_at}T00:00:00Z`, ledger_entry_ids: ledgerEntryIds, journal_id: paymentPosting.journalId, reimbursement_journal_id: reimbursementPosting.journalId, notes: parsed.data.notes || null });
+    const { error: paymentError } = await supabase.from("expense_payments").insert({ claim_id: claim.id, company_id: guard.employee.company_id, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number || null, paid_by: guard.employee.id, paid_at: `${parsed.data.paid_at}T00:00:00Z`, ledger_entry_ids: ledgerEntryIds, journal_id: paymentPosting.journalId, reimbursement_journal_id: reimbursementPosting.journalId, transaction_event_id: transactionEventId, notes: parsed.data.notes || null });
     if (paymentError) {
       await supabase.from("ledger_entries").delete().in("journal_id", [reimbursementPosting.journalId, paymentPosting.journalId]);
       return NextResponse.json({ error: paymentError.message }, { status: 500 });

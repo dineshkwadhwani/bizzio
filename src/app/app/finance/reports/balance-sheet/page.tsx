@@ -84,6 +84,11 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams?
     journalTotals.set(key, totals);
   }
   const unbalancedJournals = [...journalTotals.values()].filter((journal) => Math.abs(journal.debit - journal.credit) >= 0.005);
+  const assetSection = sections.find((section) => section.type === "asset")!;
+  const liabilitySection = sections.find((section) => section.type === "liability")!;
+  const equitySection = sections.find((section) => section.type === "equity")!;
+  const liabilityTotal = liabilitySection.rows.reduce((sum, row) => sum + row.balance, 0);
+  const equityTotal = equitySection.rows.reduce((sum, row) => sum + row.balance, 0) + currentEarnings;
 
   return <div>
     <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
@@ -109,12 +114,27 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams?
     </div>
 
     <div className="mt-6 grid gap-6 lg:grid-cols-2">
-      {(["asset", "liability", "equity"] as const).map((type) => {
-        const section = sections.find((item) => item.type === type)!;
-        const title = type === "asset" ? "Assets" : type === "liability" ? "Liabilities" : "Equity";
-        const total = section.rows.reduce((sum, row) => sum + row.balance, 0) + (type === "equity" ? currentEarnings : 0);
-        return <div className="card p-0" key={type}><div className="border-b border-ink-100 px-4 py-3"><h2 className="font-semibold text-ink-900">{title}</h2></div><div className="divide-y divide-ink-50">{section.rows.map((row) => <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm" key={row.id}><Link className="text-brand-600 hover:underline" href={`/app/finance/reports/account/${row.id}?asOf=${asOf}`}>{row.name}</Link><span className="font-semibold text-ink-900">{formatINR(row.balance)}</span></div>)}{type === "equity" && Math.abs(currentEarnings) >= 0.005 && <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm"><span className="text-ink-700">Current period earnings</span><span className="font-semibold text-ink-900">{formatINR(currentEarnings)}</span></div>}<div className="flex items-center justify-between border-t border-ink-200 px-4 py-3 text-sm font-bold"><span>Total {title}</span><span>{formatINR(total)}</span></div>{!section.rows.length && !(type === "equity" && Math.abs(currentEarnings) >= 0.005) && <p className="px-4 py-4 text-sm text-ink-400">No posted balances.</p>}</div></div>;
-      })}
+      <div className="card p-0">
+        <div className="border-b border-ink-100 px-4 py-3"><h2 className="font-semibold text-ink-900">Assets</h2></div>
+        <div className="divide-y divide-ink-50">
+          {assetSection.rows.map((row) => <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm" key={row.id}><Link className="text-brand-600 hover:underline" href={`/app/finance/reports/account/${row.id}?asOf=${asOf}`}>{row.name}</Link><span className="font-semibold text-ink-900">{formatINR(row.balance)}</span></div>)}
+          <div className="flex items-center justify-between border-t border-ink-200 px-4 py-3 text-sm font-bold"><span>Total Assets</span><span>{formatINR(assets)}</span></div>
+        </div>
+      </div>
+
+      <div className="card p-0">
+        <div className="border-b border-ink-100 px-4 py-3"><h2 className="font-semibold text-ink-900">Liabilities &amp; Equity</h2></div>
+        <div className="divide-y divide-ink-50">
+          <p className="bg-ink-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Liabilities</p>
+          {liabilitySection.rows.map((row) => <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm" key={row.id}><Link className="text-brand-600 hover:underline" href={`/app/finance/reports/account/${row.id}?asOf=${asOf}`}>{row.name}</Link><span className="font-semibold text-ink-900">{formatINR(row.balance)}</span></div>)}
+          <div className="flex items-center justify-between px-4 py-3 text-sm font-semibold"><span>Total Liabilities</span><span>{formatINR(liabilityTotal)}</span></div>
+          <p className="bg-ink-50 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-500">Equity</p>
+          {equitySection.rows.map((row) => <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm" key={row.id}><Link className="text-brand-600 hover:underline" href={`/app/finance/reports/account/${row.id}?asOf=${asOf}`}>{row.name}</Link><span className="font-semibold text-ink-900">{formatINR(row.balance)}</span></div>)}
+          {Math.abs(currentEarnings) >= 0.005 && <div className="flex items-center justify-between gap-4 px-4 py-3 text-sm"><span className="text-ink-700">Current period earnings</span><span className="font-semibold text-ink-900">{formatINR(currentEarnings)}</span></div>}
+          <div className="flex items-center justify-between px-4 py-3 text-sm font-semibold"><span>Total Equity</span><span>{formatINR(equityTotal)}</span></div>
+          <div className="flex items-center justify-between border-t border-ink-200 px-4 py-3 text-sm font-bold"><span>Total Liabilities + Equity</span><span>{formatINR(totalLiabilitiesAndEquity)}</span></div>
+        </div>
+      </div>
     </div>
 
     <div className="card mt-6 p-0">

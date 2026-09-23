@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
@@ -64,13 +64,15 @@ export default function AttendancePage() {
   const [workLocation, setWorkLocation] = useState("designated_office");
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const loadSequence = useRef(0);
 
   const monthOptions = useMemo(() => {
     const options: string[] = [];
     const start = new Date(`${monthKey(today)}-01T00:00:00`);
-    for (let i = 0; i < 12; i += 1) {
+    for (let i = -12; i <= 12; i += 1) {
       const month = new Date(start.getFullYear(), start.getMonth() - i, 1);
       options.push(`${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`);
     }
@@ -78,24 +80,39 @@ export default function AttendancePage() {
   }, [today]);
 
   async function load(month = selectedMonth) {
+    const sequence = ++loadSequence.current;
+    setCalendarLoading(true);
     const { data: auth } = await supabase.auth.getUser();
     const { data: employee } = await supabase.from("employees").select("id").eq("user_id", auth.user?.id).single();
-    if (!employee) return;
+    if (!employee) {
+      if (sequence === loadSequence.current) setCalendarLoading(false);
+      return;
+    }
 
     const nextMonthDate = new Date(`${month}-01T00:00:00`);
     nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
     const firstDate = `${month}-01`;
     const nextMonth = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, "0")}-01`;
-    const [{ data: attendanceRows }, { data: holidayRows }, { data: leaveRows }, { data: types }] = await Promise.all([
+    const [attendanceResult, holidayResult, leaveResult, leaveTypeResult] = await Promise.all([
       supabase.from("attendance").select("id, date, status, check_in_time, check_in_comment, work_location").eq("employee_id", employee.id).gte("date", firstDate).lt("date", nextMonth).order("date"),
       supabase.from("holidays").select("date, name").gte("date", firstDate).lt("date", nextMonth).order("date"),
       supabase.from("leave_requests").select("id, start_date, end_date, status, reason, leave_type_id, leave_types(name)").eq("employee_id", employee.id).lte("start_date", nextMonth).gte("end_date", firstDate).order("start_date"),
       supabase.from("leave_types").select("id, name").eq("is_active", true).order("name")
     ]);
-    setAttendance(attendanceRows ?? []);
-    setHolidays(holidayRows ?? []);
-    setLeaveRequests(leaveRows ?? []);
-    setLeaveTypes(types ?? []);
+
+    if (sequence !== loadSequence.current) return;
+    const queryError = attendanceResult.error || holidayResult.error || leaveResult.error || leaveTypeResult.error;
+    if (queryError) {
+      setError(queryError.message);
+      setCalendarLoading(false);
+      return;
+    }
+    setError(null);
+    setAttendance(attendanceResult.data ?? []);
+    setHolidays(holidayResult.data ?? []);
+    setLeaveRequests(leaveResult.data ?? []);
+    setLeaveTypes(leaveTypeResult.data ?? []);
+    setCalendarLoading(false);
   }
 
   useEffect(() => { void load(); }, [selectedMonth]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -202,12 +219,14 @@ export default function AttendancePage() {
         <h1 className="text-2xl font-bold text-ink-900">Attendance</h1>
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/app/leave/new" className="btn-secondary">Apply for Leave</Link>
-          <select aria-label="Attendance month" className="input w-auto" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
+          <select aria-label="Attendance month" className="input w-auto" value={selectedMonth} onChange={(event) => { setSelectedDate(null); setSelectedMonth(event.target.value); }}>
             {monthOptions.map((month) => <option key={month} value={month}>{monthLabel(month)}</option>)}
           </select>
         </div>
       </div>
       {message && <p className="mt-4 rounded-lg bg-green-100 px-4 py-3 text-sm text-green-800" role="status">{message}</p>}
+      {calendarLoading && <p className="mt-4 text-sm text-ink-500" role="status">Loading attendance, leaves, and holidays…</p>}
+      {error && !selectedDate && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">{error}</p>}
 
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {[

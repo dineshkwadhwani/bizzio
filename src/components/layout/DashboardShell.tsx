@@ -58,21 +58,24 @@ const NAV_ICONS = {
 } as const;
 
 export type NavItem = { href: string; label: string; icon: keyof typeof NAV_ICONS; section?: string };
+export type DashboardIdentity = { name: string; email: string; role: string };
 
 export function DashboardShell({
   navItems,
   title,
-  children
+  children,
+  initialIdentity
 }: {
   navItems: NavItem[];
   title: string;
   children: React.ReactNode;
+  initialIdentity?: DashboardIdentity | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSection, setOpenSection] = useState<string | null>(navItems[0]?.section ?? null);
-  const [identity, setIdentity] = useState<{ name: string; email: string; role: string } | null>(null);
+  const [identity, setIdentity] = useState<DashboardIdentity | null>(initialIdentity ?? null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -85,7 +88,7 @@ export function DashboardShell({
       ]);
       const metadata = auth.user.user_metadata ?? {};
       const name = employee?.name ?? metadata.full_name ?? metadata.name ?? auth.user.email ?? "User";
-      setIdentity({ name, email: auth.user.email ?? "", role: profile?.role ?? "user" });
+      setIdentity({ name, email: auth.user.email ?? initialIdentity?.email ?? "", role: profile?.role ?? initialIdentity?.role ?? "user" });
     })();
   }, []);
 

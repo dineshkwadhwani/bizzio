@@ -4,7 +4,7 @@ export default function FinancePage() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-ink-900">Finance</h1>
-      <p className="mt-1 text-sm text-ink-500">Vendor/Customer masters, PO, Quotation → SO → Invoice, ledger, reports.</p>
+      <p className="mt-1 text-sm text-ink-500">Vendor/Customer masters, purchase and sales documents, ledger, reports.</p>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Link href="/app/finance/vendors" className="card block hover:border-ink-200">
           <p className="text-sm font-semibold text-ink-900">Vendor Master</p>
@@ -27,8 +27,12 @@ export default function FinancePage() {
           <p className="mt-1 text-sm text-ink-600">Convert accepted quotations into sales orders, review them, and send to the customer.</p>
         </Link>
         <Link href="/app/finance/invoices" className="card block hover:border-ink-200">
-          <p className="text-sm font-semibold text-ink-900">Invoice</p>
-          <p className="mt-1 text-sm text-ink-600">Generate invoices from a Sales Order or standalone, then create the receipt that posts the ledger.</p>
+          <p className="text-sm font-semibold text-ink-900">Sales Invoices</p>
+          <p className="mt-1 text-sm text-ink-600">Generate sales invoices from a Sales Order or standalone, then record customer receipts.</p>
+        </Link>
+        <Link href="/app/finance/purchase-invoices" className="card block hover:border-ink-200">
+          <p className="text-sm font-semibold text-ink-900">Purchase Invoices</p>
+          <p className="mt-1 text-sm text-ink-600">Record vendor bills and settle them through the vendor payable account.</p>
         </Link>
         <Link href="/app/finance/salary" className="card block hover:border-ink-200">
           <p className="text-sm font-semibold text-ink-900">Salary Paid</p>

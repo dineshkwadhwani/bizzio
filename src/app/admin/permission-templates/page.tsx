@@ -4,22 +4,38 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { BackButton } from "@/components/layout/BackButton";
 
-const TOGGLES = [
-  { key: "submit_timesheet", label: "Submit Timesheet" },
-  { key: "submit_dcr", label: "Submit DCR" },
-  { key: "mark_attendance", label: "Mark Attendance" },
-  { key: "apply_leave", label: "Apply for Leave" },
-  { key: "raise_expense", label: "Raise Expense for Reimbursement" },
-  { key: "manage_vendors", label: "Manage Vendors (Finance)" },
-  { key: "create_po", label: "Create PO (Finance)" },
-  { key: "purchase_cycle", label: "Purchase Cycle (PO & Payments)" },
-  { key: "manage_customers", label: "Manage Customers (Finance)" },
-  { key: "create_so", label: "Create SO (Finance)" },
-  { key: "generate_invoice", label: "Generate Invoice (Finance)" },
-  { key: "sales_cycle", label: "Sales Cycle (Quotation, SO & Invoice)" },
-  { key: "record_other_income", label: "Record Other Income (Finance)" },
-  { key: "approve_pay_expenses", label: "Approve/Pay Expenses (Finance)" },
-  { key: "finance_reports", label: "Finance Reports (Finance Manager)" }
+const TOGGLE_GROUPS = [
+  {
+    area: "Work Reporting",
+    toggles: [
+      { key: "submit_timesheet", label: "Submit Timesheet" },
+      { key: "submit_dcr", label: "Submit DCR" }
+    ]
+  },
+  {
+    area: "Attendance & Leave",
+    toggles: [
+      { key: "mark_attendance", label: "Mark Attendance" },
+      { key: "apply_leave", label: "Apply for Leave" }
+    ]
+  },
+  {
+    area: "Finance",
+    toggles: [
+      { key: "raise_expense", label: "Raise Expense for Reimbursement" },
+      { key: "manage_vendors", label: "Manage Vendors" },
+      { key: "create_po", label: "Create PO" },
+      { key: "purchase_cycle", label: "Purchase Cycle (PO & Payments)" },
+      { key: "manage_customers", label: "Manage Customers" },
+      { key: "create_so", label: "Create SO" },
+      { key: "generate_invoice", label: "Generate Invoice" },
+      { key: "sales_cycle", label: "Sales Cycle (Quotation, SO & Invoice)" },
+      { key: "record_other_income", label: "Record Other Income" },
+      { key: "approve_pay_expenses", label: "Approve/Pay Expenses" },
+      { key: "finance_reports", label: "Finance Reports (Finance Manager)" },
+      { key: "edit_transactions", label: "Edit Transactions" }
+    ]
+  }
 ];
 
 export default function PermissionTemplatesPage() {
@@ -75,7 +91,7 @@ export default function PermissionTemplatesPage() {
 
   return (
     <div>
-      <BackButton href="/admin/employees" label="Back to Employees" />
+      <BackButton href="/admin/dashboard" label="Back to Dashboard" />
       <h1 className="text-2xl font-bold text-ink-900">Permission Templates</h1>
       <p className="mt-1 text-sm text-ink-500">
         A reusable action-toggle matrix. Submit Timesheet and Submit DCR are mutually exclusive by design.
@@ -86,17 +102,16 @@ export default function PermissionTemplatesPage() {
           <label className="label">Template Name</label>
           <input className="input max-w-xs" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-          {TOGGLES.map((t) => (
-            <label key={t.key} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={!!toggles[t.key]}
-                onChange={(e) => setToggles((prev) => ({ ...prev, [t.key]: e.target.checked }))}
-              />
-              {t.label}
-            </label>
-          ))}
+        <div className="space-y-4 text-sm">
+          {TOGGLE_GROUPS.map((group) => <fieldset key={group.area} className="rounded-lg border border-ink-100 p-3">
+            <legend className="px-1 font-semibold text-ink-800">{group.area}</legend>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {group.toggles.map((toggle) => <label key={toggle.key} className="flex items-center gap-2">
+                <input type="checkbox" checked={!!toggles[toggle.key]} onChange={(e) => setToggles((prev) => ({ ...prev, [toggle.key]: e.target.checked }))} />
+                {toggle.label}
+              </label>)}
+            </div>
+          </fieldset>)}
         </div>
         <button className="btn-primary">Save Template</button>
       </form>
@@ -110,13 +125,16 @@ export default function PermissionTemplatesPage() {
                   <label className="label" htmlFor={`edit-template-name-${t.id}`}>Template Name</label>
                   <input id={`edit-template-name-${t.id}`} className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
                 </div>
-                <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                  {TOGGLES.map((toggle) => (
-                    <label key={toggle.key} className="flex items-start gap-2">
-                      <input type="checkbox" checked={!!editToggles[toggle.key]} onChange={(e) => setEditToggles((prev) => ({ ...prev, [toggle.key]: e.target.checked }))} />
-                      <span>{toggle.label}</span>
-                    </label>
-                  ))}
+                <div className="space-y-4 text-sm">
+                  {TOGGLE_GROUPS.map((group) => <fieldset key={group.area} className="rounded-lg border border-ink-100 p-3">
+                    <legend className="px-1 font-semibold text-ink-800">{group.area}</legend>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {group.toggles.map((toggle) => <label key={toggle.key} className="flex items-start gap-2">
+                        <input type="checkbox" checked={!!editToggles[toggle.key]} onChange={(e) => setEditToggles((prev) => ({ ...prev, [toggle.key]: e.target.checked }))} />
+                        <span>{toggle.label}</span>
+                      </label>)}
+                    </div>
+                  </fieldset>)}
                 </div>
                 {editError && <p className="text-sm text-red-600">{editError}</p>}
                 <div className="flex flex-wrap gap-2">

@@ -15,10 +15,13 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false);
 
   return (
-    <header className="sticky top-0 z-50 border-b border-ink-100 bg-white">
+    <>
+      <header className="sticky top-0 z-50 border-b border-ink-100 bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         <Link href="/" className="flex items-center gap-2">
-          <img src="/favicon.svg" alt="Bizzio" className="h-8 w-8 rounded-lg" />
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 text-sm font-bold text-white">
+            B
+          </span>
           <span className="text-lg font-bold tracking-tight text-ink-900">
             Bizzio<span className="text-brand-500">.online</span>
           </span>
@@ -50,43 +53,44 @@ export function SiteHeader() {
         </button>
       </div>
 
-      {/* Mobile slide-out panel */}
+      </header>
+      {/* Mobile slide-out panel must be outside the backdrop-blurred header. */}
       {open && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 bg-ink-900/40"
-            onClick={() => setOpen(false)}
-          />
-          <div className="absolute right-0 top-0 z-10 flex h-full w-72 flex-col bg-white p-6 shadow-xl [isolation:isolate]">
-            <div className="mb-8 flex items-center justify-between">
-              <span className="text-lg font-bold text-ink-900">Menu</span>
-              <button onClick={() => setOpen(false)} aria-label="Close menu">
-                <X size={22} />
-              </button>
-            </div>
-            <Link href="/" onClick={() => setOpen(false)} className="py-3 text-ink-700">
-              Home
-            </Link>
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className="py-3 text-ink-700"
-              >
-                {item.label}
-              </Link>
-            ))}
-            <Link
-              href="/login"
-              onClick={() => setOpen(false)}
-              className="btn-primary mt-6 w-full"
-            >
-              Login
-            </Link>
+      <div className="fixed inset-0 z-[60] md:hidden">
+        <div
+          className="absolute inset-0 bg-ink-900/40"
+          onClick={() => setOpen(false)}
+        />
+        <div className="absolute inset-y-0 right-0 z-10 flex w-72 flex-col overflow-y-auto bg-white p-6 shadow-xl [isolation:isolate]">
+          <div className="mb-8 flex items-center justify-between">
+            <span className="text-lg font-bold text-ink-900">Menu</span>
+            <button onClick={() => setOpen(false)} aria-label="Close menu">
+              <X size={22} />
+            </button>
           </div>
+          <Link href="/" onClick={() => setOpen(false)} className="py-3 text-ink-700">
+            Home
+          </Link>
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              onClick={() => setOpen(false)}
+              className="py-3 text-ink-700"
+            >
+              {item.label}
+            </Link>
+          ))}
+          <Link
+            href="/login"
+            onClick={() => setOpen(false)}
+            className="btn-primary mt-6 w-full"
+          >
+            Login
+          </Link>
         </div>
+      </div>
       )}
-    </header>
+    </>
   );
 }

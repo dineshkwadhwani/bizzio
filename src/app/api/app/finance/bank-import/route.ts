@@ -60,7 +60,7 @@ async function detectPossibleDuplicates(supabase: ReturnType<typeof createClient
 
   const { data: paidClaims } = await supabase
     .from("expense_payments")
-    .select("claim_id, reference_number, paid_at, expense_claims(total_amount)")
+    .select("claim_id, reference_number, paid_at, expense_claims(reimbursement_amount)")
     .eq("company_id", companyId);
 
   const { data: pendingRows } = await supabase
@@ -81,7 +81,7 @@ async function detectPossibleDuplicates(supabase: ReturnType<typeof createClient
 
     const paidClaim = (paidClaims ?? []).find((payment: any) => {
       const paidDate = payment.paid_at?.slice(0, 10);
-      const claimAmount = Number(payment.expense_claims?.total_amount || 0);
+      const claimAmount = Number(payment.expense_claims?.reimbursement_amount || 0);
       const referenceMatches = !payment.reference_number || !refNo || payment.reference_number.trim() === refNo;
       return paidDate === row.row_date && claimAmount === amount && referenceMatches;
     });

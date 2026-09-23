@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AccountPicker, type AccountOption } from "@/components/finance/AccountPicker";
+import { createClient } from "@/lib/supabase/client";
 
 const INITIAL_FORM = {
   entry_type: "expense",
@@ -13,7 +14,9 @@ const INITIAL_FORM = {
   description: "",
   notes: "",
   entry_date: new Date().toISOString().slice(0, 10),
-  is_accountable: true
+  is_accountable: true,
+  attachment_path: "",
+  attachment_name: ""
 };
 
 export default function NewAdHocEntryPage() {
@@ -54,6 +57,19 @@ export default function NewAdHocEntryPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  async function uploadAttachment(file: File) {
+    setError(null);
+    const supabase = createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single();
+    if (!userRow?.company_id) { setError("Unable to identify the company for this document."); return; }
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${userRow.company_id}/transactions/adhoc-${Date.now()}-${safeName}`;
+    const { data: uploaded, error: uploadError } = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false });
+    if (uploadError || !uploaded) { setError(uploadError?.message || "Unable to upload the document."); return; }
+    setForm((current) => ({ ...current, attachment_path: uploaded.path, attachment_name: file.name }));
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -68,7 +84,9 @@ export default function NewAdHocEntryPage() {
       description: form.description,
       notes: form.notes,
       entry_date: form.entry_date,
-      is_accountable: form.is_accountable
+      is_accountable: form.is_accountable,
+      attachment_path: form.attachment_path || null,
+      attachment_name: form.attachment_name || null
     };
 
     const res = await fetch("/api/app/finance/ledger-entries", {
@@ -174,6 +192,12 @@ export default function NewAdHocEntryPage() {
         <div>
           <label className="label">Notes</label>
           <textarea className="input" rows={3} value={form.notes} onChange={(e) => updateField("notes", e.target.value)} placeholder="Optional notes" />
+        </div>
+
+        <div>
+          <label className="label">Document (optional)</label>
+          <input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(e) => { const file = e.target.files?.[0]; if (file) void uploadAttachment(file); }} />
+          {form.attachment_name && <p className="mt-2 text-xs text-ink-500">Attached: {form.attachment_name}</p>}
         </div>
 
         <label className="flex items-center gap-3 text-sm text-ink-700">

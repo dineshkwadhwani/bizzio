@@ -1,32 +1,54 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
 
 export default function HolidayCalendarPage() {
-  const supabase = createClient();
   const [holidays, setHolidays] = useState<any[]>([]);
   const [form, setForm] = useState({ date: "", name: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
-    const { data } = await supabase.from("holidays").select("*").order("date");
-    setHolidays(data ?? []);
+    setLoading(true);
+    const response = await fetch("/api/admin/holidays", { cache: "no-store" });
+    const json = await response.json();
+    setLoading(false);
+    if (!response.ok) {
+      setError(typeof json.error === "string" ? json.error : "Unable to load holidays.");
+      return;
+    }
+    setError(null);
+    setHolidays(json.holidays ?? []);
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!form.date || !form.name.trim()) return;
-    const { data: auth } = await supabase.auth.getUser();
-    const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single();
-    await supabase.from("holidays").insert({ ...form, company_id: userRow?.company_id });
+    setError(null);
+    const response = await fetch("/api/admin/holidays", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form)
+    });
+    const json = await response.json();
+    if (!response.ok) {
+      setError(typeof json.error === "string" ? json.error : "Unable to add holiday.");
+      return;
+    }
     setForm({ date: "", name: "" });
     load();
   }
 
   async function remove(id: string) {
-    await supabase.from("holidays").delete().eq("id", id);
+    setError(null);
+    const response = await fetch(`/api/admin/holidays?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const json = await response.json();
+    if (!response.ok) {
+      setError(typeof json.error === "string" ? json.error : "Unable to remove holiday.");
+      return;
+    }
     load();
   }
 
@@ -39,6 +61,7 @@ export default function HolidayCalendarPage() {
         <div><label className="label">Name</label><input className="input" placeholder="e.g. Independence Day" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
         <button className="btn-primary">Add</button>
       </form>
+      {error && <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}
       <div className="card mt-6 divide-y divide-ink-50 p-0">
         {holidays.map((h) => (
           <div key={h.id} className="flex items-center justify-between px-4 py-3">
@@ -46,7 +69,8 @@ export default function HolidayCalendarPage() {
             <button onClick={() => remove(h.id)} className="text-sm text-red-600 hover:underline">Remove</button>
           </div>
         ))}
-        {!holidays.length && <p className="px-4 py-8 text-center text-ink-400">No holidays added yet.</p>}
+        {loading && <p className="px-4 py-8 text-center text-ink-400">Loading holidays…</p>}
+        {!loading && !holidays.length && <p className="px-4 py-8 text-center text-ink-400">No holidays added yet.</p>}
       </div>
     </div>
   );

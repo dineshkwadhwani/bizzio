@@ -37,12 +37,12 @@ export default async function ExpensesPage() {
         <div className="divide-y divide-ink-50">
           {loadError && <p className="px-4 py-8 text-center text-sm text-red-600">Unable to load your claims. Please refresh and try again.</p>}
           {claims?.map((c) => (
-            <div key={c.id} className="flex items-center justify-between px-4 py-3 text-sm">
+              <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
               <div>
                 <p className="font-medium text-ink-800">{c.claim_name} · {formatINR(c.total_amount)}</p>
                 <p className="text-ink-400">{formatDate(c.claim_date)} · Approval levels: {c.required_approval_levels ?? "—"}</p>
               </div>
-              <span className={`badge ${STATUS_STYLE[c.status]}`}>{c.status.replace(/_/g, " ")}</span>
+              <div className="flex items-center gap-3"><span className={`badge ${STATUS_STYLE[c.status]}`}>{c.status.replace(/_/g, " ")}</span>{["draft", "rejected"].includes(c.status) && <Link href={`/app/expenses/new?claim_id=${c.id}`} className="text-brand-600 hover:underline">Edit</Link>}</div>
             </div>
           ))}
           {!loadError && !claims?.length && <p className="px-4 py-8 text-center text-ink-400">No claims yet.</p>}

@@ -44,7 +44,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       .select("*")
       .eq("import_id", params.id)
       .eq("company_id", guard.employee.company_id)
-      .order("row_date", { ascending: false, nullsFirst: false })
+      .order("row_date", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
     if (rowsError) return NextResponse.json({ error: rowsError.message }, { status: 500 });
@@ -127,8 +127,8 @@ export async function POST(request: Request, { params }: { params: { id: string 
           return referenceMatches;
         });
         if (matchingPayment) {
-          const { data: claim } = await supabase.from("expense_claims").select("total_amount").eq("id", matchingPayment.claim_id).single();
-          if (claim && Number(claim.total_amount) === amount) {
+          const { data: claim } = await supabase.from("expense_claims").select("reimbursement_amount").eq("id", matchingPayment.claim_id).single();
+          if (claim && Number(claim.reimbursement_amount) === amount) {
             const firstLedgerId = Array.isArray(matchingPayment.ledger_entry_ids) ? matchingPayment.ledger_entry_ids[0] : null;
             const { error } = await supabase.from("bank_statement_rows").update({ status: "reconciled", ledger_entry_id: firstLedgerId, matched_expense_claim_id: matchingPayment.claim_id, notes: row.notes || "Reconciled to a paid expense claim." }).eq("id", row.id);
             if (!error) {
@@ -171,6 +171,14 @@ export async function POST(request: Request, { params }: { params: { id: string 
       if (bankAccountError || !bankAccount) {
         return NextResponse.json({ error: "Bank Account asset is missing. Create or activate the Bank Account account head before posting imports." }, { status: 400 });
       }
+      const { data: salariesHead } = await writeClient
+        .from("account_heads")
+        .select("id")
+        .eq("company_id", guard.employee.company_id)
+        .eq("name", "Salaries")
+        .eq("type", "expense")
+        .eq("is_active", true)
+        .maybeSingle();
       for (const row of rows ?? []) {
         if (row.status === "posted" || row.status === "reconciled" || row.status === "ignored") {
           skipped.push({ rowId: row.id, reason: `${row.status}_row` });
@@ -206,7 +214,20 @@ export async function POST(request: Request, { params }: { params: { id: string 
           continue;
         }
 
-        const lines = isExpense
+        const isEmployeeSalaryAccount = isExpense && accountHead.is_party_account && accountHead.party_type === "employee";
+        if (isEmployeeSalaryAccount && !salariesHead) {
+          skipped.push({ rowId: row.id, reason: "missing_salaries_account" });
+          continue;
+        }
+
+        const lines = isEmployeeSalaryAccount
+          ? [
+              { accountHeadId: salariesHead!.id, amount, entryType: "debit" as const, label: "Salary expense" },
+              { accountHeadId, amount, entryType: "credit" as const, label: "Salary payable — accrual" },
+              { accountHeadId, amount, entryType: "debit" as const, label: "Salary payable — settlement" },
+              { accountHeadId: bankAccount.id, amount, entryType: "credit" as const, label: "Bank" }
+            ]
+          : isExpense
           ? [
               { accountHeadId, amount, entryType: "debit" as const, label: "Expense/category" },
               { accountHeadId: bankAccount.id, amount, entryType: "credit" as const, label: "Bank" }

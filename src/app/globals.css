@@ -10,6 +10,131 @@ body {
   @apply bg-ink-50 text-ink-900 antialiased;
 }
 
+.account-statement-table {
+  table-layout: fixed;
+}
+
+.account-statement-table th,
+.account-statement-table td {
+  overflow-wrap: anywhere;
+}
+
+.account-statement-table th:nth-child(1),
+.account-statement-table td:nth-child(1) { width: 9%; }
+.account-statement-table th:nth-child(2),
+.account-statement-table td:nth-child(2) { width: 27%; }
+.account-statement-table th:nth-child(3),
+.account-statement-table td:nth-child(3) { width: 10%; }
+.account-statement-table th:nth-child(4),
+.account-statement-table td:nth-child(4) { width: 13%; }
+.account-statement-table th:nth-child(5),
+.account-statement-table td:nth-child(5),
+.account-statement-table th:nth-child(6),
+.account-statement-table td:nth-child(6),
+.account-statement-table th:nth-child(7),
+.account-statement-table td:nth-child(7) { width: 11%; }
+.account-statement-table th:nth-child(8),
+.account-statement-table td:nth-child(8) { width: 8%; }
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .printable-account-statement,
+  .printable-account-statement * {
+    visibility: visible;
+  }
+
+  .printable-account-statement {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0;
+    background: white;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .account-statement-summary {
+    break-inside: avoid;
+  }
+
+  .account-statement-table {
+    min-width: 0 !important;
+    width: 100% !important;
+    table-layout: fixed;
+    font-size: 8pt;
+  }
+
+  .account-statement-table th,
+  .account-statement-table td {
+    padding: 4px !important;
+    overflow-wrap: anywhere;
+  }
+
+  .account-statement-table th:nth-child(1),
+  .account-statement-table td:nth-child(1) { width: 9%; }
+  .account-statement-table th:nth-child(2),
+  .account-statement-table td:nth-child(2) { width: 22%; }
+  .account-statement-table th:nth-child(3),
+  .account-statement-table td:nth-child(3) { width: 13%; }
+  .account-statement-table th:nth-child(4),
+  .account-statement-table td:nth-child(4) { width: 14%; }
+  .account-statement-table th:nth-child(5),
+  .account-statement-table td:nth-child(5),
+  .account-statement-table th:nth-child(6),
+  .account-statement-table td:nth-child(6),
+  .account-statement-table th:nth-child(7),
+  .account-statement-table td:nth-child(7) { width: 11%; }
+  .account-statement-table th:nth-child(8),
+  .account-statement-table td:nth-child(8) { width: 9%; }
+
+  body.printing-transaction-report .transaction-print-modal {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    background: white !important;
+    padding: 0 !important;
+    visibility: visible !important;
+  }
+
+  body.printing-transaction-report .transaction-print-modal,
+  body.printing-transaction-report .transaction-print-modal * {
+    visibility: visible !important;
+  }
+
+  body.printing-transaction-report .transaction-print-dialog {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    box-shadow: none !important;
+  }
+
+  body.printing-transaction-report .transaction-print-content {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+}
+
+@media screen {
+  .transaction-print-modal {
+    display: none;
+  }
+
+  body.printing-transaction-report .transaction-print-modal {
+    display: flex;
+  }
+}
+
 @layer components {
   .card {
     @apply bg-white rounded-2xl shadow-card border border-ink-100 p-6;

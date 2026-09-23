@@ -7,7 +7,7 @@ export type AccountOption = {
   label: string;
   kind: "head" | "party";
   type: "asset" | "liability" | "equity" | "expense" | "income";
-  party_type: "vendor" | "customer" | null;
+  party_type: "vendor" | "customer" | "employee" | null;
   group: string;
 };
 
@@ -34,7 +34,7 @@ export function AccountPicker({
 
   return (
     <div>
-      <label className="label">{label}</label>
+      {label && <label className="label">{label}</label>}
       <select className="input" value={value} onChange={(e) => onChange(e.target.value)} required>
         {!options.length && <option value="">No matching accounts available</option>}
         {grouped.map(([groupLabel, groupedOptions]) => (

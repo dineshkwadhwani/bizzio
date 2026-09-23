@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/server";
 import { notifyEmployeeById } from "@/lib/notifications";
 
 /**
@@ -21,15 +21,17 @@ export async function POST(
   }
 
   const { decision, comment } = await request.json();
-  if (!["approved", "rejected"].includes(decision)) {
+  if (!["approved", "rejected", "returned"].includes(decision)) {
     return NextResponse.json({ error: "Invalid decision" }, { status: 400 });
   }
-  if (decision === "rejected" && !comment?.trim()) {
-    return NextResponse.json({ error: "A comment is required to reject." }, { status: 400 });
+  if (["rejected", "returned"].includes(decision) && !comment?.trim()) {
+    return NextResponse.json({ error: "A comment is required for rejection or return." }, { status: 400 });
   }
 
-  const supabase = createClient();
-  const database = guard.profile.role === "company_admin" ? createAdminClient() : supabase;
+  // Authorization is checked explicitly below against the authenticated
+  // employee, while the decision itself uses the server client so RLS cannot
+  // hide a valid approval step created for that employee.
+  const database = createAdminClient();
   const { data: approver } = guard.profile.role === "employee"
     ? await database.from("employees").select("id, company_id").eq("user_id", guard.user.id).single()
     : { data: { id: null, company_id: guard.profile.company_id } };
@@ -44,9 +46,13 @@ export async function POST(
     return NextResponse.json({ error: "This approval step is not actionable by you." }, { status: 403 });
   }
 
+  if (decision === "returned" && step.entity_type !== "expense_claim") {
+    return NextResponse.json({ error: "Only expense claims can be returned to the employee." }, { status: 400 });
+  }
+
   await database
     .from("approval_steps")
-    .update({ status: decision, comment, decided_at: new Date().toISOString() })
+    .update({ status: decision === "returned" ? "rejected" : decision, comment, decided_at: new Date().toISOString() })
     .eq("id", step.id);
 
   if (step.entity_type === "leave_request") {
@@ -93,6 +99,20 @@ async function handleTimesheetDecision(supabase: any, step: any, decision: strin
 async function handleExpenseDecision(supabase: any, step: any, decision: string, companyId: string) {
   const { data: claim } = await supabase.from("expense_claims").select("*, employee:employees(*, users!employees_user_id_fkey(id, email))").eq("id", step.entity_id).single();
   if (!claim) return;
+
+  if (decision === "returned") {
+    await supabase.from("expense_claims").update({ status: "draft", submitted_at: null }).eq("id", claim.id);
+    if (claim.employee?.user_id) {
+      await notifyEmployeeById(claim.employee_id, {
+        type: "expense_claim_decision",
+        title: "Expense claim returned for changes",
+        body: "Your expense claim was returned for changes. Please review the approver comment and resubmit it.",
+        entityType: "expense_claim",
+        entityId: claim.id
+      });
+    }
+    return;
+  }
 
   if (decision === "rejected") {
     await supabase.from("expense_claims").update({ status: "rejected" }).eq("id", claim.id);

@@ -16,6 +16,7 @@ const Schema = z.object({
   claim_name: z.string().trim().min(1),
   claim_date: z.string().date(),
   claim_notes: z.string().trim().optional(),
+  reimbursement_amount: z.number().nonnegative(),
   line_items: z.array(LineItem).min(1)
 });
 
@@ -53,7 +54,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Each claim category must be an active expense or asset account." }, { status: 400 });
   }
   const requiredLevels = Math.max(1, ...(heads ?? []).map((h) => h.approval_levels ?? 1));
-  const totalAmount = parsed.data.line_items.reduce((sum, li) => sum + li.amount, 0);
+  const totalAmount = Number(parsed.data.line_items.reduce((sum, li) => sum + li.amount, 0).toFixed(2));
+  const reimbursementAmount = Number(parsed.data.reimbursement_amount.toFixed(2));
+  if (reimbursementAmount > totalAmount) {
+    return NextResponse.json({ error: "Reimbursement amount cannot be greater than the claim total." }, { status: 400 });
+  }
 
   const { data: claim, error } = await supabase
     .from("expense_claims")
@@ -66,6 +71,7 @@ export async function POST(request: Request) {
       status: isRootEmployee ? "ready_for_payment" : "submitted",
       required_approval_levels: requiredLevels,
       total_amount: totalAmount,
+      reimbursement_amount: reimbursementAmount,
       submitted_at: new Date().toISOString()
     })
     .select()
@@ -95,7 +101,7 @@ export async function POST(request: Request) {
       await notifyEmployeeById(employee.reporting_manager_id, {
         type: "expense_claim_submitted",
         title: "Expense claim submitted",
-        body: `An expense claim for ${formatINR(totalAmount)} is awaiting your approval.`,
+        body: `An expense claim for ${formatINR(reimbursementAmount)} reimbursement against ${formatINR(totalAmount)} of expenses is awaiting your approval.`,
         entityType: "expense_claim",
         entityId: claim.id
       });

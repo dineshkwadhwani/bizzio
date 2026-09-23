@@ -25,24 +25,39 @@ export default async function PurchasePaymentsPage() {
     .neq("status", "draft")
     .order("created_at", { ascending: false });
 
-  if (error) {
+  const { data: purchaseInvoices, error: invoiceError } = await supabase
+    .from("purchase_invoices")
+    .select("id, invoice_number, title, status, invoice_date, total_amount, vendor:vendors(name)")
+    .eq("company_id", employee.company_id)
+    .in("status", ["received", "partially_paid"])
+    .order("invoice_date", { ascending: false });
+
+  if (error || invoiceError) {
     return <div className="card"><h1 className="text-2xl font-bold text-ink-900">Make Payments</h1><p className="mt-2 text-sm text-red-600">Unable to load purchase orders.</p></div>;
   }
 
   const orderIds = (purchaseOrders ?? []).map((order) => order.id);
-  const [{ data: payments }, { data: lines }] = await Promise.all([
+  const invoiceIds = (purchaseInvoices ?? []).map((invoice) => invoice.id);
+  const [{ data: payments }, { data: lines }, { data: invoicePayments }] = await Promise.all([
     orderIds.length
-      ? supabase.from("purchase_order_payments").select("purchase_order_id").in("purchase_order_id", orderIds)
-      : Promise.resolve({ data: [] as { purchase_order_id: string }[] }),
+      ? supabase.from("purchase_order_payments").select("purchase_order_id, amount").in("purchase_order_id", orderIds)
+      : Promise.resolve({ data: [] as { purchase_order_id: string; amount: number }[] }),
     orderIds.length
       ? supabase.from("po_line_items").select("po_id, line_total").in("po_id", orderIds)
-      : Promise.resolve({ data: [] as { po_id: string; line_total: number }[] })
+      : Promise.resolve({ data: [] as { po_id: string; line_total: number }[] }),
+    invoiceIds.length
+      ? supabase.from("purchase_invoice_payments").select("purchase_invoice_id, amount").in("purchase_invoice_id", invoiceIds)
+      : Promise.resolve({ data: [] as { purchase_invoice_id: string; amount: number }[] })
   ]);
 
-  const paidIds = new Set((payments ?? []).map((payment) => payment.purchase_order_id));
   const totals = new Map<string, number>();
   for (const line of lines ?? []) totals.set(line.po_id, (totals.get(line.po_id) ?? 0) + Number(line.line_total ?? 0));
-  const unpaidOrders = (purchaseOrders ?? []).filter((order) => !paidIds.has(order.id));
+  const paidTotals = new Map<string, number>();
+  for (const payment of payments ?? []) paidTotals.set(payment.purchase_order_id, (paidTotals.get(payment.purchase_order_id) ?? 0) + Number(payment.amount ?? 0));
+  const invoicePaidTotals = new Map<string, number>();
+  for (const payment of invoicePayments ?? []) invoicePaidTotals.set(payment.purchase_invoice_id, (invoicePaidTotals.get(payment.purchase_invoice_id) ?? 0) + Number(payment.amount ?? 0));
+  const unpaidOrders = (purchaseOrders ?? []).map((order: any) => ({ ...order, balance: Math.max(0, (totals.get(order.id) ?? 0) - (paidTotals.get(order.id) ?? 0)) })).filter((order) => order.balance > 0.005);
+  const unpaidInvoices = (purchaseInvoices ?? []).map((invoice: any) => ({ ...invoice, balance: Math.max(0, Number(invoice.total_amount ?? 0) - (invoicePaidTotals.get(invoice.id) ?? 0)) })).filter((invoice) => invoice.balance > 0.005);
 
   return (
     <div>
@@ -50,9 +65,19 @@ export default async function PurchasePaymentsPage() {
         <h1 className="text-2xl font-bold text-ink-900">Payments</h1>
         <Link href="/app/finance/payments/new" className="btn-primary"><Plus size={16} className="mr-2" /> New Payment</Link>
       </div>
-      <p className="mt-1 text-sm text-ink-500">Record a payment from a purchase order or create a standalone accounting payment.</p>
+      <p className="mt-1 text-sm text-ink-500">Record a payment against a purchase invoice or purchase order.</p>
       <div className="card mt-6 p-0">
         <div className="divide-y divide-ink-50">
+          {unpaidInvoices.map((invoice: any) => (
+            <Link key={invoice.id} href={`/app/finance/purchase-invoices/${invoice.id}`} className="flex items-center justify-between gap-4 px-4 py-4 hover:bg-ink-50">
+              <div>
+                <p className="font-semibold text-ink-800">{invoice.invoice_number}</p>
+                <p className="text-sm text-ink-500">{invoice.vendor?.name || "Unknown vendor"} · Purchase Invoice</p>
+                <p className="mt-1 text-xs text-ink-400">Invoice date {formatDate(invoice.invoice_date)} · {invoice.status}</p>
+              </div>
+              <div className="text-right"><p className="font-semibold text-ink-800">{formatINR(invoice.balance)}</p><span className="badge bg-blue-50 text-blue-700">Payment due</span></div>
+            </Link>
+          ))}
           {unpaidOrders.map((order: any) => (
             <Link key={order.id} href={`/app/finance/po/${order.id}`} className="flex items-center justify-between gap-4 px-4 py-4 hover:bg-ink-50">
               <div>
@@ -61,12 +86,12 @@ export default async function PurchasePaymentsPage() {
                 <p className="mt-1 text-xs text-ink-400">Created {formatDate(order.created_at)} · {order.status}</p>
               </div>
               <div className="text-right">
-                <p className="font-semibold text-ink-800">{formatINR(totals.get(order.id) ?? 0)}</p>
+                <p className="font-semibold text-ink-800">{formatINR(order.balance)}</p>
                 <span className="badge bg-amber-50 text-amber-700">Payment due</span>
               </div>
             </Link>
           ))}
-          {!unpaidOrders.length && <p className="px-4 py-8 text-center text-ink-400">There are no purchase orders awaiting payment.</p>}
+          {!unpaidOrders.length && !unpaidInvoices.length && <p className="px-4 py-8 text-center text-ink-400">There are no purchase invoices or purchase orders awaiting payment.</p>}
         </div>
       </div>
     </div>

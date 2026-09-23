@@ -9,6 +9,7 @@ const PaymentSchema = z.object({
   payment_type: z.enum(["advance", "part", "full"]),
   reference_number: z.string().optional().or(z.literal("")),
   amount: z.coerce.number().positive(),
+  payment_date: z.string().date().default(new Date().toISOString().slice(0, 10)),
   supplier_invoice_path: z.string().optional().nullable(),
   supplier_invoice_name: z.string().optional().nullable()
 });
@@ -63,10 +64,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
       if (paymentGst > 0) { if (!inputGst) return NextResponse.json({ error: "Paid GST account is missing." }, { status: 400 }); journalLines.push({ accountHeadId: inputGst.id, amount: paymentGst, entryType: "debit", label: "Paid GST" }); }
     }
     journalLines.push({ accountHeadId: paymentAccount.id, amount: parsed.data.amount, entryType: "credit", label: "Bank/Cash" });
-    const journal = await createBalancedJournal(supabase, { companyId: guard.employee.company_id, lines: journalLines, paymentMode: parsed.data.payment_mode, referenceNumber: parsed.data.reference_number?.trim() || null, description: `${parsed.data.payment_type === "advance" ? "Advance" : "Payment"} for PO ${po.po_number}`, entryDate: new Date().toISOString().slice(0, 10), createdBy: guard.employee.id, sourceType: "manual_journal" });
+    const journal = await createBalancedJournal(supabase, { companyId: guard.employee.company_id, lines: journalLines, paymentMode: parsed.data.payment_mode, referenceNumber: parsed.data.reference_number?.trim() || null, description: `${parsed.data.payment_type === "advance" ? "Advance" : "Payment"} for PO ${po.po_number}`, entryDate: parsed.data.payment_date, createdBy: guard.employee.id, sourceType: "manual_journal" });
     if (journal.error || !journal.data) return NextResponse.json({ error: journal.error?.message || "Unable to post payment." }, { status: 500 });
-    const { data: payment, error: paymentError } = await supabase.from("purchase_order_payments").insert({ purchase_order_id: params.id, company_id: guard.employee.company_id, payment_type: parsed.data.payment_type, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number?.trim() || null, amount: parsed.data.amount, supplier_invoice_path: parsed.data.supplier_invoice_path || null, supplier_invoice_name: parsed.data.supplier_invoice_name || null, paid_by: guard.employee.id, journal_id: journal.journalId }).select().single();
+    const { data: payment, error: paymentError } = await supabase.from("purchase_order_payments").insert({ purchase_order_id: params.id, company_id: guard.employee.company_id, payment_type: parsed.data.payment_type, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number?.trim() || null, amount: parsed.data.amount, supplier_invoice_path: parsed.data.supplier_invoice_path || null, supplier_invoice_name: parsed.data.supplier_invoice_name || null, paid_by: guard.employee.id, paid_at: `${parsed.data.payment_date}T00:00:00.000Z`, journal_id: journal.journalId }).select().single();
     if (paymentError) return NextResponse.json({ error: paymentError.message }, { status: 500 });
+    await supabase.from("ledger_entries").update({ source_id: payment.id, attachment_path: parsed.data.supplier_invoice_path || null, attachment_name: parsed.data.supplier_invoice_name || null }).eq("company_id", guard.employee.company_id).eq("journal_id", journal.journalId);
     return NextResponse.json({ payment }, { status: 201 });
   } catch (error) { return error as Response; }
 }

@@ -34,17 +34,18 @@ create type expense_claim_status as enum ('draft', 'submitted', 'pending_level2'
 create type payment_mode        as enum ('cash', 'cheque', 'bank_transfer');
 create type account_type        as enum ('asset', 'liability', 'equity', 'income', 'expense');
 create type account_head_request_status as enum ('pending', 'approved', 'rejected');
-create type party_type          as enum ('vendor', 'customer');
+create type party_type          as enum ('vendor', 'customer', 'employee');
 create type doc_status          as enum ('draft', 'reviewed', 'sent');
 create type quotation_status    as enum ('draft', 'reviewed', 'sent', 'accepted', 'rejected', 'expired');
 create type so_status           as enum ('created', 'sent', 'invoiced');
 create type invoice_status      as enum ('draft', 'reviewed', 'sent', 'paid');
 create type gst_type            as enum ('cgst_sgst', 'igst');
 create type ledger_entry_type   as enum ('debit', 'credit');
-create type ledger_source_type  as enum ('expense_claim', 'invoice_issued', 'invoice_receipt', 'adhoc_expense', 'adhoc_income', 'gst_payment', 'salary_paid', 'bank_import_row', 'manual_journal', 'opening_balance');
+create type ledger_source_type  as enum ('expense_claim', 'invoice_issued', 'invoice_receipt', 'purchase_invoice_issued', 'purchase_invoice_payment', 'customer_advance', 'customer_advance_application', 'adhoc_expense', 'adhoc_income', 'gst_payment', 'salary_paid', 'bank_import_row', 'manual_journal', 'opening_balance');
 create type bank_row_status     as enum ('pending', 'posted', 'ignored', 'possible_duplicate', 'reconciled');
 create type notification_channel as enum ('email', 'push');
-create type doc_seq_type        as enum ('po', 'quo', 'so', 'invoice', 'receipt');
+create type doc_seq_type        as enum ('po', 'quo', 'so', 'invoice', 'purchase_invoice', 'receipt');
+create type purchase_invoice_status as enum ('draft', 'received', 'partially_paid', 'paid', 'cancelled');
 
 -- ----------------------------------------------------------------------------
 -- 2. IDENTITY & COMPANY LIFECYCLE  (Module 1, Module 7)
@@ -185,6 +186,7 @@ create table employees (
   bank_ifsc               text,
   bank_name               text,
   payable_salary          numeric(14,2),
+  salary_payable_account_head_id uuid,
   is_manager              boolean not null default false,
   is_director             boolean not null default false,
   is_finance              boolean not null default false,
@@ -360,6 +362,10 @@ create table account_heads (
   created_at          timestamptz not null default now()
 );
 
+alter table employees
+  add constraint employees_salary_payable_account_head_fkey
+  foreign key (salary_payable_account_head_id) references account_heads(id);
+
 create table account_head_requests (
   id              uuid primary key default gen_random_uuid(),
   company_id      uuid not null references companies(id) on delete cascade,
@@ -534,10 +540,13 @@ create table invoices (
   title           text not null,
   so_id           uuid references sales_orders(id),
   invoice_number  text not null,
+  invoice_date    date not null default current_date,
   status          invoice_status not null default 'draft',
   base_amount     numeric(14,2) not null default 0,
   gst_amount      numeric(14,2) not null default 0,
   total_amount    numeric(14,2) not null default 0,
+  attachment_path text,
+  attachment_name text,
   sent_at         timestamptz,
   created_by      uuid references employees(id),
   created_at      timestamptz not null default now(),
@@ -559,6 +568,69 @@ create table invoice_line_items (
   line_total    numeric(14,2) not null default 0
 );
 
+create table purchase_invoices (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  vendor_id uuid not null references vendors(id),
+  purchase_order_id uuid references purchase_orders(id),
+  title text not null,
+  invoice_number text not null,
+  vendor_invoice_number text,
+  invoice_date date not null default current_date,
+  due_date date,
+  status purchase_invoice_status not null default 'draft',
+  base_amount numeric(14,2) not null default 0,
+  gst_amount numeric(14,2) not null default 0,
+  total_amount numeric(14,2) not null default 0,
+  attachment_path text,
+  attachment_name text,
+  created_by uuid references employees(id),
+  created_at timestamptz not null default now(),
+  unique (company_id, invoice_number)
+);
+
+create table purchase_invoice_line_items (
+  id uuid primary key default gen_random_uuid(),
+  purchase_invoice_id uuid not null references purchase_invoices(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
+  account_head_id uuid references account_heads(id),
+  description text not null,
+  qty numeric(12,2) not null default 1,
+  rate numeric(14,2) not null default 0,
+  gst_percent numeric(5,2) not null default 18,
+  gst_type gst_type not null default 'cgst_sgst',
+  cgst_amount numeric(14,2) not null default 0,
+  sgst_amount numeric(14,2) not null default 0,
+  igst_amount numeric(14,2) not null default 0,
+  line_total numeric(14,2) not null default 0
+);
+
+create table purchase_invoice_payments (
+  id uuid primary key default gen_random_uuid(),
+  purchase_invoice_id uuid not null references purchase_invoices(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
+  payment_mode payment_mode not null,
+  reference_number text,
+  amount numeric(14,2) not null check (amount > 0),
+  paid_by uuid references employees(id),
+  paid_at date not null default current_date,
+  journal_id uuid,
+  transaction_event_id uuid,
+  created_at timestamptz not null default now()
+);
+
+create table invoice_attachments (
+  id            uuid primary key default gen_random_uuid(),
+  invoice_id    uuid not null references invoices(id) on delete cascade,
+  company_id    uuid not null references companies(id) on delete cascade,
+  storage_path  text not null,
+  file_name     text not null,
+  created_by    uuid references employees(id),
+  created_at    timestamptz not null default now()
+);
+
+create index invoice_attachments_invoice_id_idx on invoice_attachments(invoice_id);
+
 create table receipts (
   id               uuid primary key default gen_random_uuid(),
   invoice_id       uuid not null unique references invoices(id) on delete cascade,
@@ -571,9 +643,31 @@ create table receipts (
   tds_amount      numeric(14,2) not null default 0,
   discount_amount numeric(14,2) not null default 0,
   delta_treatment text,
+  attachment_path text,
+  attachment_name text,
   received_by      uuid references employees(id),
   received_at      timestamptz not null default now(),
   journal_id       uuid
+  ,post_to_ledger  boolean not null default true
+  ,non_posting_comment text
+  ,payer_name      text
+  ,payer_account_id uuid references account_heads(id)
+  ,taxable_amount numeric(14,2) not null default 0
+  ,gst_amount      numeric(14,2) not null default 0
+);
+
+create table standalone_receipts (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  payer_name text not null,
+  account_head_id uuid not null references account_heads(id),
+  payment_mode payment_mode not null,
+  reference_number text,
+  amount numeric(14,2) not null check (amount > 0),
+  received_at date not null,
+  journal_id uuid,
+  created_by uuid references employees(id),
+  created_at timestamptz not null default now()
 );
 
 create table expense_claims (
@@ -586,9 +680,40 @@ create table expense_claims (
   status                   expense_claim_status not null default 'draft',
   required_approval_levels smallint,
   total_amount             numeric(14,2) not null default 0,
+  reimbursement_amount     numeric(14,2) not null default 0 check (reimbursement_amount >= 0 and reimbursement_amount <= total_amount),
   submitted_at             timestamptz,
   created_at               timestamptz not null default now()
 );
+
+create table customer_advances (
+  id               uuid primary key default gen_random_uuid(),
+  company_id       uuid not null references companies(id) on delete cascade,
+  customer_id      uuid not null references customers(id),
+  account_head_id  uuid not null references account_heads(id),
+  amount           numeric(14,2) not null check (amount > 0),
+  applied_amount   numeric(14,2) not null default 0 check (applied_amount >= 0 and applied_amount <= amount),
+  payment_mode     payment_mode not null,
+  reference_number text,
+  received_at      date not null,
+  journal_id       uuid,
+  created_by       uuid references employees(id),
+  created_at       timestamptz not null default now()
+);
+create index customer_advances_company_customer_idx on customer_advances(company_id, customer_id);
+create index customer_advances_journal_idx on customer_advances(company_id, journal_id);
+
+create table customer_advance_applications (
+  id          uuid primary key default gen_random_uuid(),
+  company_id  uuid not null references companies(id) on delete cascade,
+  advance_id  uuid not null references customer_advances(id),
+  invoice_id  uuid not null references invoices(id),
+  amount      numeric(14,2) not null check (amount > 0),
+  journal_id  uuid,
+  created_by  uuid references employees(id),
+  created_at  timestamptz not null default now()
+);
+create index customer_advance_applications_advance_idx on customer_advance_applications(company_id, advance_id);
+create index customer_advance_applications_invoice_idx on customer_advance_applications(company_id, invoice_id);
 
 create table expense_line_items (
   id              uuid primary key default gen_random_uuid(),
@@ -602,6 +727,24 @@ create table expense_line_items (
   created_at      timestamptz not null default now()
 );
 
+create table transaction_events (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references companies(id) on delete cascade,
+  event_type         text not null,
+  source_type        text,
+  source_id          uuid,
+  event_date         date not null default current_date,
+  description        text,
+  reference_number   text,
+  primary_journal_id uuid,
+  created_by         uuid references employees(id),
+  created_at         timestamptz not null default now()
+);
+
+alter table purchase_invoice_payments
+  add constraint purchase_invoice_payments_event_fk
+  foreign key (transaction_event_id) references transaction_events(id);
+
 create table expense_payments (
   id               uuid primary key default gen_random_uuid(),
   claim_id         uuid not null unique references expense_claims(id) on delete cascade,
@@ -614,7 +757,8 @@ create table expense_payments (
   journal_id uuid,
   bank_statement_row_id uuid,
   reimbursement_journal_id uuid,
-  notes            text
+  notes            text,
+  transaction_event_id uuid references transaction_events(id)
 );
 
 create table ledger_entries (
@@ -630,8 +774,12 @@ create table ledger_entries (
   reference_number text,
   description      text,
   notes            text,
+  attachment_path  text,
+  attachment_name  text,
+  attachment_bucket text,
   journal_id       uuid,
   journal_line     text,
+  transaction_event_id uuid references transaction_events(id),
   entry_date       date not null default current_date,
   created_by       uuid references employees(id),
   created_at       timestamptz not null default now()
@@ -678,7 +826,9 @@ create table salary_payments (
   paid_for_period   text,
   paid_by           uuid references employees(id),
   paid_at           timestamptz not null default now(),
-  journal_id        uuid
+  journal_id        uuid,
+  accrual_journal_id uuid,
+  transaction_event_id uuid references transaction_events(id)
 );
 
 -- ----------------------------------------------------------------------------
@@ -956,6 +1106,7 @@ begin
       (new.id, 'Accounts Receivable (Debtors)', 'asset', true),
       (new.id, 'Accounts Payable (Creditors)', 'liability', true),
       (new.id, 'GST Payable', 'liability', true),
+      (new.id, 'Customer Advances', 'liability', true),
       (new.id, 'Owner''s Capital', 'equity', true),
       (new.id, 'Opening Balance Equity', 'equity', true),
       (new.id, 'Sales Income', 'income', true),
@@ -1051,9 +1202,9 @@ declare
     'timesheet_entries','dcr_leads','dcr_interactions','account_heads',
     'account_head_requests','vendors','customers','purchase_orders','po_line_items',
     'quotations','quotation_line_items','sales_orders','so_line_items','invoices',
-    'invoice_line_items','receipts','expense_claims','expense_line_items',
-    'expense_payments','ledger_entries','bank_statement_imports','bank_statement_rows',
-    'salary_payments','document_sequences'
+    'invoice_line_items','purchase_invoices','purchase_invoice_line_items','purchase_invoice_payments','receipts','expense_claims','expense_line_items',
+    'expense_payments','transaction_events','ledger_entries','bank_statement_imports','bank_statement_rows',
+    'salary_payments','customer_advances','customer_advance_applications','document_sequences'
   ];
 begin
   foreach t in array tenant_tables loop
@@ -1130,7 +1281,8 @@ insert into storage.buckets (id, name, public) values
   ('generated-pdfs', 'generated-pdfs', false),
   ('bank-statements', 'bank-statements', false),
   ('sales-order-documents', 'sales-order-documents', false),
-  ('purchase-order-documents', 'purchase-order-documents', false)
+  ('purchase-order-documents', 'purchase-order-documents', false),
+  ('transaction-documents', 'transaction-documents', false)
 on conflict (id) do nothing;
 
 -- company-logos / employee-photos: public read, company-scoped write
@@ -1147,7 +1299,7 @@ create policy "employee_photos_write" on storage.objects for insert with check (
 do $$
 declare b text;
 begin
-  foreach b in array array['employee-documents','expense-receipts','generated-pdfs','bank-statements','sales-order-documents','purchase-order-documents'] loop
+  foreach b in array array['employee-documents','expense-receipts','generated-pdfs','bank-statements','sales-order-documents','purchase-order-documents','transaction-documents'] loop
     execute format($f$
       create policy "%1$s_rw" on storage.objects for all
       using (bucket_id = '%1$s' and (storage.foldername(name))[1] = auth_company_id()::text)

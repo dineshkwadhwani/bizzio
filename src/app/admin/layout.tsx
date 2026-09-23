@@ -2,7 +2,8 @@ import {
   LayoutDashboard, Users, User, Building2, Tags, ShieldCheck, CalendarDays,
   Plane, Receipt, BookOpen, GitBranch, Image as ImageIcon, BarChart3
 } from "lucide-react";
-import { DashboardShell, type NavItem } from "@/components/layout/DashboardShell";
+import { DashboardShell, type DashboardIdentity, type NavItem } from "@/components/layout/DashboardShell";
+import { createClient } from "@/lib/supabase/server";
 
 const NAV: NavItem[] = [
   { href: "/admin/dashboard", label: "Dashboard", icon: "LayoutDashboard", section: "Overview" },
@@ -22,9 +23,22 @@ const NAV: NavItem[] = [
   { href: "/admin/reports", label: "Reports", icon: "BarChart3", section: "Activity" }
 ];
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const [{ data: profile }, { data: employee }] = await Promise.all([
+    user ? supabase.from("users").select("role").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+    user ? supabase.from("employees").select("name, email").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null })
+  ]);
+  const metadata = user?.user_metadata ?? {};
+  const initialIdentity: DashboardIdentity | null = user ? {
+    name: employee?.name ?? metadata.full_name ?? metadata.name ?? user.email ?? "User",
+    email: employee?.email ?? user.email ?? "",
+    role: profile?.role ?? "company_admin"
+  } : null;
+
   return (
-    <DashboardShell navItems={NAV} title="Company Admin">
+    <DashboardShell navItems={NAV} title="Company Admin" initialIdentity={initialIdentity}>
       {children}
     </DashboardShell>
   );

@@ -2,7 +2,7 @@ import {
   LayoutDashboard, Clock, Users, User, Plane, FileText, PhoneCall,
   ReceiptText, CheckSquare, Landmark, BarChart3
 } from "lucide-react";
-import { DashboardShell, type NavItem } from "@/components/layout/DashboardShell";
+import { DashboardShell, type DashboardIdentity, type NavItem } from "@/components/layout/DashboardShell";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { effectiveToggles } from "@/lib/permissions";
 import { MissingDocumentsModal } from "@/components/app/MissingDocumentsModal";
@@ -19,11 +19,21 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     .select("*, permission_templates(toggles)")
     .eq("user_id", user?.id)
     .single();
+  const { data: profile } = user
+    ? await supabase.from("users").select("role").eq("id", user.id).maybeSingle()
+    : { data: null };
+  const metadata = user?.user_metadata ?? {};
+  const initialIdentity: DashboardIdentity | null = user ? {
+    name: employee?.name ?? metadata.full_name ?? metadata.name ?? user.email ?? "User",
+    email: employee?.email ?? user.email ?? "",
+    role: profile?.role ?? "employee"
+  } : null;
 
   const employeeTemplate = Array.isArray((employee as any)?.permission_templates)
     ? (employee as any).permission_templates[0]
     : (employee as any)?.permission_templates;
   const toggles = effectiveToggles(employeeTemplate?.toggles, employee?.permission_overrides);
+  const canApproveExpenses = toggles.approve_pay_expenses === true;
   const { data: financeReportsOverride } = employee
     ? await supabase.from("company_feature_overrides").select("enabled").eq("company_id", employee.company_id).eq("feature_key", "finance_reports").maybeSingle()
     : { data: null };
@@ -54,7 +64,7 @@ export default async function EmployeeAppLayout({ children }: { children: React.
 
   if (toggles.submit_timesheet) nav.push({ href: "/app/timesheet", label: "Timesheet", icon: "FileText", section: "Requests" });
   if (toggles.submit_dcr) nav.push({ href: "/app/dcr", label: "DCR", icon: "PhoneCall", section: "Requests" });
-  if (employee?.is_manager) nav.push({ href: "/app/approvals", label: "Approvals", icon: "CheckSquare", section: "Requests" });
+  if (employee?.is_manager || employee?.is_finance || canApproveExpenses) nav.push({ href: "/app/approvals", label: "Approvals", icon: "CheckSquare", section: "Requests" });
   if (employee?.is_finance) {
     nav.push({ href: "/app/finance", label: "Finance", icon: "Landmark", section: "Finance" });
     nav.push({ href: "/app/finance/vendors", label: "Vendors", icon: "Landmark", section: "Finance" });
@@ -62,26 +72,31 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     if (salesCycleEnabled && toggles.sales_cycle) {
       nav.push({ href: "/app/finance/quotations", label: "Quotations", icon: "FileText", section: "Operations" });
       nav.push({ href: "/app/finance/sales-orders", label: "Sales Orders", icon: "FileText", section: "Operations" });
-      nav.push({ href: "/app/finance/invoices", label: "Invoices", icon: "FileText", section: "Operations" });
+      nav.push({ href: "/app/finance/invoices", label: "Sales Invoices", icon: "FileText", section: "Operations" });
+      nav.push({ href: "/app/finance/receive-payments", label: "Receive Payments", icon: "CreditCard", section: "Operations" });
     }
     if (purchaseCycleEnabled && toggles.purchase_cycle) {
       nav.push({ href: "/app/finance/po", label: "Purchase Orders", icon: "FileText", section: "Operations" });
+      nav.push({ href: "/app/finance/purchase-invoices", label: "Purchase Invoices", icon: "FileText", section: "Operations" });
       nav.push({ href: "/app/finance/payments", label: "Make Payments", icon: "CreditCard", section: "Operations" });
     }
     nav.push({ href: "/app/finance/salary", label: "Salary", icon: "Landmark", section: "Finance" });
     nav.push({ href: "/app/finance/adhoc-entries", label: "Ad-hoc Entries", icon: "Landmark", section: "Finance" });
     nav.push({ href: "/app/finance/bank-import", label: "Bank Import", icon: "Landmark", section: "Finance" });
     nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
+    nav.push({ href: "/app/finance/reports/invoices", label: "Invoice Report", icon: "FileText", section: "Insights" });
   }
+  if (!employee?.is_finance && canApproveExpenses) nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
   if (toggles.raise_expense) nav.push({ href: "/app/expenses", label: "Expenses", icon: "ReceiptText", section: "Finance" });
   nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3", section: "Insights" });
   if (employee?.is_finance && toggles.finance_reports && financeReportsEnabled) {
     nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
+    nav.push({ href: "/app/finance/reports/transactions", label: "Transaction Report", icon: "FileText", section: "Insights" });
     nav.push({ href: "/app/finance/reports/balance-sheet", label: "Balance Sheet", icon: "FileText", section: "Insights" });
   }
 
   return (
-    <DashboardShell navItems={nav} title="My Workspace">
+    <DashboardShell navItems={nav} title="My Workspace" initialIdentity={initialIdentity}>
       {children}
       <MissingDocumentsModal missing={missingDocuments} />
     </DashboardShell>

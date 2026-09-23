@@ -16,7 +16,7 @@ export default async function InvoicesPage() {
   if (!employee || !employee.is_finance) {
     return (
       <div className="card">
-        <h1 className="text-2xl font-bold text-ink-900">Invoices</h1>
+        <h1 className="text-2xl font-bold text-ink-900">Sales Invoices</h1>
         <p className="mt-2 text-sm text-red-600">Finance access is required to manage invoices.</p>
       </div>
     );
@@ -31,9 +31,9 @@ export default async function InvoicesPage() {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-ink-900">Invoices</h1>
+        <h1 className="text-2xl font-bold text-ink-900">Sales Invoices</h1>
         <Link href="/app/finance/invoices/new" className="btn-primary">
-          <Plus size={16} className="mr-2" /> Add Invoice
+          <Plus size={16} className="mr-2" /> Add Sales Invoice
         </Link>
       </div>
 
@@ -43,8 +43,8 @@ export default async function InvoicesPage() {
             <Link key={invoice.id} href={`/app/finance/invoices/${invoice.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
               <div>
                 <p className="font-medium text-ink-800">{invoice.title}</p>
-                <p className="text-xs text-ink-400">{invoice.invoice_number}</p>
-                <p className="text-ink-400">{invoice.customer?.name || "Unknown customer"}</p>
+          <p className="text-xs text-ink-400">Sales invoice · {invoice.invoice_number}</p>
+                <p className="text-ink-400">{invoice.customer?.name || "Unknown customer"} · Invoice date: {invoice.invoice_date || "—"}</p>
               </div>
               <div className="text-right">
                 <span className={`badge ${invoice.status === "paid" ? "bg-green-50 text-green-700" : invoice.status === "sent" ? "bg-blue-50 text-blue-700" : invoice.status === "reviewed" ? "bg-amber-50 text-amber-700" : "bg-ink-100 text-ink-500"}`}>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { formatDate } from "@/lib/utils";
+import { formatDate, formatINR } from "@/lib/utils";
 
 export default function ApprovalsPage() {
   const supabase = createClient();
@@ -33,6 +33,21 @@ export default function ApprovalsPage() {
             .single();
           return { ...step, detail: lr };
         }
+        if (step.entity_type === "expense_claim") {
+          const { data: claim } = await supabase
+            .from("expense_claims")
+            .select("*, employees(name, email), expense_line_items(*, account_heads(name))")
+            .eq("id", step.entity_id)
+            .single();
+          if (!claim) return { ...step, detail: null };
+          const lineItems = await Promise.all((claim.expense_line_items ?? []).map(async (item: any) => ({
+            ...item,
+            receipt_signed_url: item.receipt_url
+              ? (await supabase.storage.from("expense-receipts").createSignedUrl(item.receipt_url, 3600)).data?.signedUrl ?? null
+              : null
+          })));
+          return { ...step, detail: { ...claim, expense_line_items: lineItems } };
+        }
         return { ...step, detail: null };
       })
     );
@@ -41,7 +56,7 @@ export default function ApprovalsPage() {
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function decide(stepId: string, decision: "approved" | "rejected") {
+  async function decide(stepId: string, decision: "approved" | "rejected" | "returned") {
     setLoading(stepId);
     await fetch(`/api/app/approvals/${stepId}/decide`, {
       method: "POST",
@@ -75,14 +90,25 @@ export default function ApprovalsPage() {
                 <p className="mt-1 text-sm text-ink-600">{s.detail.reason}</p>
               </>
             )}
+            {s.entity_type === "expense_claim" && s.detail && (
+              <>
+                <p className="font-semibold text-ink-900">{s.detail.claim_name}</p>
+                <p className="text-sm text-ink-500">{s.detail.employees?.name} · {formatDate(s.detail.claim_date)} · Claim total {formatINR(s.detail.total_amount)} · Reimbursement {formatINR(s.detail.reimbursement_amount)}</p>
+                {s.detail.claim_notes && <p className="mt-2 text-sm text-ink-600">{s.detail.claim_notes}</p>}
+                <div className="mt-3 space-y-2 text-sm">
+                  {(s.detail.expense_line_items ?? []).map((item: any) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-ink-100 px-3 py-2"><span>{item.account_heads?.name ?? "Expense"} · {formatINR(item.amount)}{item.notes ? ` — ${item.notes}` : ""}</span>{item.receipt_signed_url && <a className="text-brand-600 underline" href={item.receipt_signed_url} target="_blank" rel="noreferrer">View receipt</a>}</div>)}
+                </div>
+              </>
+            )}
             <textarea
               className="input mt-3"
-              placeholder="Comment (required if rejecting)"
+              placeholder="Approval notes or comments (required if rejecting)"
               value={comments[s.id] ?? ""}
               onChange={(e) => setComments((c) => ({ ...c, [s.id]: e.target.value }))}
             />
             <div className="mt-3 flex gap-3">
               <button disabled={loading === s.id} onClick={() => decide(s.id, "approved")} className="btn-primary">Approve</button>
+              {s.entity_type === "expense_claim" && <button disabled={loading === s.id} onClick={() => decide(s.id, "returned")} className="btn-secondary">Return to employee</button>}
               <button disabled={loading === s.id} onClick={() => decide(s.id, "rejected")} className="btn-secondary text-red-600">Reject</button>
             </div>
           </div>

@@ -9,8 +9,14 @@ const SalaryPaymentSchema = z.object({
   paid_for_period: z.string().min(1),
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
   reference_number: z.string().optional().or(z.literal("")),
+  payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.coerce.number().min(0).optional()
 });
+
+function signedChange(entryType: string, accountType: string, amount: number) {
+  const debitNormal = accountType === "asset" || accountType === "expense";
+  return debitNormal ? (entryType === "debit" ? amount : -amount) : (entryType === "credit" ? amount : -amount);
+}
 
 export async function GET(request: Request) {
   try {
@@ -19,16 +25,86 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("mode");
 
+    if (mode === "account") {
+      const employeeId = searchParams.get("employee_id");
+      const asOf = searchParams.get("asOf");
+      if (!employeeId) return NextResponse.json({ error: "Employee is required." }, { status: 400 });
+      const asOfDate = asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : new Date().toISOString().slice(0, 10);
+
+      const { data: employee, error: employeeError } = await supabase
+        .from("employees")
+        .select("id, salary_payable_account_head_id")
+        .eq("id", employeeId)
+        .eq("company_id", guard.employee.company_id)
+        .eq("status", "active")
+        .single();
+      if (employeeError || !employee?.salary_payable_account_head_id) {
+        return NextResponse.json({ error: "Employee salary account not found." }, { status: 404 });
+      }
+
+      const { data: account, error: accountError } = await supabase
+        .from("account_heads")
+        .select("id, name, type, is_active")
+        .eq("id", employee.salary_payable_account_head_id)
+        .eq("company_id", guard.employee.company_id)
+        .single();
+      if (accountError || !account) return NextResponse.json({ error: "Employee salary account not found." }, { status: 404 });
+
+      const { data: entries, error: entriesError } = await supabase
+        .from("ledger_entries")
+        .select("id, entry_date, reference_number, description, notes, entry_type, amount, journal_line")
+        .eq("company_id", guard.employee.company_id)
+        .eq("account_head_id", account.id)
+        .lte("entry_date", asOfDate)
+        .order("entry_date", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (entriesError) return NextResponse.json({ error: entriesError.message }, { status: 500 });
+
+      let balance = 0;
+      let debits = 0;
+      let credits = 0;
+      const transactions = (entries ?? []).map((entry) => {
+        const amount = Number(entry.amount || 0);
+        if (entry.entry_type === "debit") debits += amount; else credits += amount;
+        balance += signedChange(entry.entry_type, account.type, amount);
+        return { ...entry, balance };
+      });
+
+      return NextResponse.json({ account, asOf: asOfDate, transactions, debits, credits, balance });
+    }
+
     if (mode === "employees") {
       const { data, error } = await supabase
         .from("employees")
-        .select("id, name, email, payable_salary, status")
+        .select("id, name, email, employee_code, payable_salary, status, salary_payable_account_head_id")
         .eq("company_id", guard.employee.company_id)
         .eq("status", "active")
-        .order("name", { ascending: true });
+        .order("employee_code", { ascending: true });
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ employees: data ?? [] });
+
+      const accountIds = (data ?? [])
+        .map((employee) => employee.salary_payable_account_head_id)
+        .filter((id): id is string => Boolean(id));
+      const { data: accounts, error: accountsError } = accountIds.length
+        ? await supabase
+            .from("account_heads")
+            .select("id, name, type, is_active")
+            .eq("company_id", guard.employee.company_id)
+            .in("id", accountIds)
+        : { data: [], error: null };
+
+      if (accountsError) return NextResponse.json({ error: accountsError.message }, { status: 500 });
+
+      const accountById = new Map((accounts ?? []).map((account) => [account.id, account]));
+      return NextResponse.json({
+        employees: (data ?? []).map((employee) => ({
+          ...employee,
+          salary_account: employee.salary_payable_account_head_id
+            ? accountById.get(employee.salary_payable_account_head_id) ?? null
+            : null
+        }))
+      });
     }
 
     if (mode === "payments") {
@@ -77,7 +153,7 @@ export async function POST(request: Request) {
 
     const { data: employee, error: employeeError } = await supabase
       .from("employees")
-      .select("id, company_id, name, payable_salary, status")
+      .select("id, company_id, name, payable_salary, salary_payable_account_head_id, status")
       .eq("id", parsed.data.employee_id)
       .eq("company_id", companyId)
       .eq("status", "active")
@@ -124,41 +200,76 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Salaries account head is missing for this company." }, { status: 400 });
     }
 
+    if (!employee.salary_payable_account_head_id) {
+      return NextResponse.json({ error: "The employee's Salary Payable account is missing. Run the employee salary account migration." }, { status: 400 });
+    }
+
     const { data: paymentAccount, error: paymentAccountError } = await findPaymentAccount(supabase, companyId, parsed.data.payment_mode);
     if (paymentAccountError || !paymentAccount) return NextResponse.json({ error: "The selected payment account is missing or inactive." }, { status: 400 });
-    const { data: ledgerEntries, error: ledgerError, journalId } = await createBalancedJournal(supabase, {
+    const description = `Salary paid for ${employee.name} — ${parsed.data.paid_for_period}`;
+    const transactionEventId = crypto.randomUUID();
+    const accrualPosting = await createBalancedJournal(supabase, {
       companyId,
       lines: [
         { accountHeadId: salariesHead.id, amount, entryType: "debit", label: "Salary expense" },
+        { accountHeadId: employee.salary_payable_account_head_id, amount, entryType: "credit", label: "Salary payable — employee" }
+      ],
+      paymentMode: null,
+      referenceNumber: parsed.data.reference_number?.trim() || null,
+      description,
+      entryDate: parsed.data.payment_date,
+      createdBy: guard.employee.id,
+      sourceType: "salary_paid",
+      sourceId: employee.id,
+      transactionEventId,
+      eventType: "salary_payment"
+    });
+    if (accrualPosting.error || !accrualPosting.data?.length) return NextResponse.json({ error: accrualPosting.error?.message ?? "Could not create salary accrual journal entry." }, { status: 500 });
+
+    const paymentPosting = await createBalancedJournal(supabase, {
+      companyId,
+      lines: [
+        { accountHeadId: employee.salary_payable_account_head_id, amount, entryType: "debit", label: "Salary payable — employee" },
         { accountHeadId: paymentAccount.id, amount, entryType: "credit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }
       ],
       paymentMode: parsed.data.payment_mode,
       referenceNumber: parsed.data.reference_number?.trim() || null,
-      description: `Salary paid for ${employee.name} — ${parsed.data.paid_for_period}`,
-      entryDate: new Date().toISOString().slice(0, 10),
+      description,
+      entryDate: parsed.data.payment_date,
       createdBy: guard.employee.id,
       sourceType: "salary_paid",
-      sourceId: null
+      sourceId: employee.id,
+      transactionEventId,
+      eventType: "salary_payment"
     });
-    if (ledgerError || !ledgerEntries?.length) return NextResponse.json({ error: ledgerError?.message ?? "Could not create balanced journal entry." }, { status: 500 });
+    if (paymentPosting.error || !paymentPosting.data?.length) {
+      await supabase.from("ledger_entries").delete().eq("journal_id", accrualPosting.journalId);
+      return NextResponse.json({ error: paymentPosting.error?.message ?? "Could not create salary payment journal entry." }, { status: 500 });
+    }
+
+    const ledgerEntries = [...accrualPosting.data, ...paymentPosting.data];
 
     const { data: salaryPayment, error: paymentError } = await supabase
       .from("salary_payments")
       .insert({
         company_id: companyId,
         employee_id: employee.id,
-        ledger_entry_id: ledgerEntries[0].id,
-        journal_id: journalId,
+        ledger_entry_id: paymentPosting.data[1]?.id ?? paymentPosting.data[0].id,
+        journal_id: paymentPosting.journalId,
+        accrual_journal_id: accrualPosting.journalId,
         amount,
         payment_mode: parsed.data.payment_mode,
         reference_number: parsed.data.reference_number?.trim() || null,
         paid_for_period: parsed.data.paid_for_period,
+        paid_at: `${parsed.data.payment_date}T00:00:00.000Z`,
+        transaction_event_id: transactionEventId,
         paid_by: guard.employee.id
       })
       .select("*")
       .single();
 
     if (paymentError) {
+      await supabase.from("ledger_entries").delete().in("journal_id", [accrualPosting.journalId, paymentPosting.journalId]);
       return NextResponse.json({ error: paymentError.message }, { status: 500 });
     }
 
