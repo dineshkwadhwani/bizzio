@@ -12,24 +12,27 @@ export default function EditTransactionPage() {
   const journalId = searchParams.get("journal_id") || "";
   const [entry, setEntry] = useState<any>(null);
   const [options, setOptions] = useState<AccountOption[]>([]);
-  const [form, setForm] = useState({ account_id: "", amount: "", reference_number: "", description: "", notes: "", entry_date: "", is_accountable: true, attachment_path: "", attachment_name: "" });
+  const [form, setForm] = useState({ account_id: "", amount: "", payment_mode: "bank_transfer", reference_number: "", description: "", notes: "", entry_date: "", is_accountable: true, attachment_path: "", attachment_name: "" });
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [eventAttachments, setEventAttachments] = useState<any[]>([]);
 
   useEffect(() => {
     if (!journalId) { setError("The transaction could not be identified."); setLoading(false); return; }
     Promise.all([
       fetch(`/api/app/finance/ledger-entries?journal_id=${encodeURIComponent(journalId)}&include_all=true`).then((res) => res.json()),
-      fetch("/api/app/finance/ledger-entries?mode=account-options&include_balance_accounts=true").then((res) => res.json())
-    ]).then(([entries, accountOptions]) => {
+      fetch("/api/app/finance/ledger-entries?mode=account-options&include_balance_accounts=true").then((res) => res.json()),
+      fetch(`/api/app/finance/ledger-entries/attachments?journal_id=${encodeURIComponent(journalId)}`).then((res) => res.ok ? res.json() : { attachments: [] })
+    ]).then(([entries, accountOptions, attachments]) => {
       const lines = Array.isArray(entries) ? entries : [];
       const primary = lines.find((item: any) => ["Expense/category", "Income/category", "Salary payable — accrual", "Salary payable — settlement", "Expense", "Income"].includes(item.journal_line)) || lines[0];
       if (!primary) { setError("This transaction could not be found."); return; }
       const categoryLine = lines.find((item: any) => ["Expense/category", "Income/category", "Salary payable — accrual", "Expense", "Income"].includes(item.journal_line)) || primary;
       setEntry(primary);
+      setEventAttachments(attachments.attachments || []);
       setOptions(accountOptions.options || []);
-      setForm({ account_id: categoryLine.account_head_id, amount: String(primary.amount || ""), reference_number: primary.reference_number || "", description: primary.description || "", notes: primary.notes || "", entry_date: primary.entry_date || "", is_accountable: primary.is_accountable !== false, attachment_path: primary.attachment_path || "", attachment_name: primary.attachment_name || "" });
+      setForm({ account_id: categoryLine.account_head_id, amount: String(primary.amount || ""), payment_mode: primary.payment_mode || "bank_transfer", reference_number: primary.reference_number || "", description: primary.description || "", notes: primary.notes || "", entry_date: primary.entry_date || "", is_accountable: primary.is_accountable !== false, attachment_path: primary.attachment_path || "", attachment_name: primary.attachment_name || "" });
     }).catch(() => setError("Unable to load this transaction.")).finally(() => setLoading(false));
   }, [journalId]);
 
@@ -43,7 +46,17 @@ export default function EditTransactionPage() {
     const path = `${userRow.company_id}/transactions/${journalId}-${Date.now()}-${safeName}`;
     const { data: uploaded, error: uploadError } = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false });
     if (uploadError || !uploaded) { setError(uploadError?.message || "Unable to upload the document."); return; }
+    const linked = await fetch("/api/app/finance/ledger-entries/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ journal_id: journalId, storage_path: uploaded.path, file_name: file.name, storage_bucket: "transaction-documents" }) });
+    if (!linked.ok) { await supabase.storage.from("transaction-documents").remove([uploaded.path]); const body = await linked.json().catch(() => ({})); setError(typeof body.error === "string" ? body.error : "The document uploaded but could not be linked to the transaction."); return; }
     setForm((current) => ({ ...current, attachment_path: uploaded.path, attachment_name: file.name }));
+    const refreshed = await fetch(`/api/app/finance/ledger-entries/attachments?journal_id=${encodeURIComponent(journalId)}`);
+    if (refreshed.ok) setEventAttachments((await refreshed.json()).attachments || []);
+  }
+
+  async function removeAttachment(id: string) {
+    const response = await fetch("/api/app/finance/ledger-entries/attachments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    if (!response.ok) { const body = await response.json().catch(() => ({})); setError(typeof body.error === "string" ? body.error : "Unable to remove the document."); return; }
+    setEventAttachments((current) => current.filter((attachment) => attachment.id !== id));
   }
 
   async function save(event: React.FormEvent) {
@@ -69,7 +82,7 @@ export default function EditTransactionPage() {
       <div><label className="label">Reference Number</label><input className="input" value={form.reference_number} onChange={(event) => setForm({ ...form, reference_number: event.target.value })} /></div>
       <div><label className="label">Description / Particulars</label><input className="input" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></div>
       <div><label className="label">Notes</label><textarea className="input" rows={3} value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></div>
-      <div><label className="label">Document (invoice, PO, receipt, or other)</label><input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(file); }} />{form.attachment_name && <p className="mt-2 text-xs text-ink-500">Attached: {form.attachment_name}</p>}</div>
+      <div><label className="label">Documents (invoice, PO, receipt, or other)</label><input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(file); }} />{form.attachment_name && <p className="mt-2 text-xs text-ink-500">Attached to journal: {form.attachment_name}</p>}{eventAttachments.length > 0 && <div className="mt-3 space-y-2">{eventAttachments.map((attachment) => <div key={attachment.id} className="flex items-center justify-between gap-3 text-xs"><a className="text-brand-600 underline" href={attachment.url} target="_blank" rel="noreferrer">📎 {attachment.file_name}</a><button type="button" className="text-red-600 underline" onClick={() => void removeAttachment(attachment.id)}>Remove</button></div>)}</div>}</div>
       {error && <p className="text-sm text-red-600">{error}</p>}
       <button className="btn-primary w-full" disabled={saving}>{saving ? "Saving…" : "Save Changes"}</button>
     </form>

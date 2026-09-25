@@ -235,6 +235,11 @@ export default function BankImportBatchPage({ params }: { params: { id: string }
         <div>
           <h1 className="text-2xl font-bold text-ink-900">{importRecord?.batch_name || "Import Batch"}</h1>
           <p className="text-sm text-ink-500">Review, categorize, and post statement rows.</p>
+          {importRecord?.attachment_url && (
+            <a className="mt-1 inline-block text-sm text-brand-700 underline" href={importRecord.attachment_url} target="_blank" rel="noreferrer">
+              View source statement{importRecord.attachment_name ? ` · ${importRecord.attachment_name}` : ""}
+            </a>
+          )}
         </div>
         <button type="button" className="btn-secondary" onClick={() => router.push("/app/finance/bank-import")}>Back to batches</button>
       </div>

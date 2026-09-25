@@ -9,11 +9,11 @@ export default async function CustomersPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const { data: employee } = await supabase
     .from("employees")
-    .select("company_id, is_finance")
+    .select("company_id, is_finance, is_operations")
     .eq("user_id", user?.id)
     .single();
 
-  if (!employee || !employee.is_finance) {
+  if (!employee || (!employee.is_finance && !employee.is_operations)) {
     return (
       <div className="card">
         <h1 className="text-2xl font-bold text-ink-900">Customer Master</h1>

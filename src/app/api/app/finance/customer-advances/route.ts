@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_receive_payments");
     const url = new URL(request.url);
     const customerId = url.searchParams.get("customer_id");
     const invoiceId = url.searchParams.get("invoice_id");

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const VendorSchema = z.object({
@@ -19,7 +19,7 @@ const VendorSchema = z.object({
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_vendors");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("vendors")
@@ -36,7 +36,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await requireFinance();
+    await requireOperations("operations_vendors");
   } catch (error) {
     return error as Response;
   }
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const guard = await requireFinance();
+  const guard = await requireOperations("operations_vendors");
   const supabase = createClient();
 
   // The DB trigger on vendors creates the party account head automatically.

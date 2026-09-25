@@ -31,8 +31,11 @@ Clicking a company opens a detail view with:
 Both statuses show distinctly in the Companies List (§1) so SuperAdmin can tell at a glance why a company is inaccessible.
 
 ### 2.2 Feature Flags (this company)
-- Shows the flag bundle inherited from the company's Plan (§4), plus any **per-company overrides** — SuperAdmin can toggle individual features on/off for this specific company regardless of its plan (e.g., give a Basic company early access to one Pro feature, or disable a feature for a company having issues with it)
-- Full flaggable feature list is finer-grained than just "Basic module vs Pro module" — see §3
+- Shows the company's assigned package and effective module bundle. The current
+  package catalog is Basic (HR), Advanced (HR + Expense), Pro (HR + Expense +
+  Finance + Timesheets + DCR), and ProMax (currently the same bundle as Pro).
+- Per-company overrides may be shown where supported, but the application still
+  requires the assigned plan to be active before module access is granted.
 
 ### 2.3 User List (this company)
 - Searchable list of all employees in this company (name, email, role/flags, status Active/Left)
@@ -46,26 +49,19 @@ Both statuses show distinctly in the Companies List (§1) so SuperAdmin can tell
 
 ---
 
-## 3. Feature Flag System (Two-Tier)
+## 3. Package and module access
 
 ### 3.1 Plan-Level Bundle
-- Each Subscription Plan (§4) defines which features are **on by default** for companies on that plan
-- Example: Basic = Attendance, Leave, Timesheet/DCR, Expense Reimbursement. Pro = Basic + Accounting.
+- Each Subscription Plan defines the module bundle available to companies on
+  that plan. The canonical keys are `hr`, `expense`, `finance`, `timesheets`,
+  and `dcr`.
 
-### 3.2 Finer-Grained Toggles
-Beyond whole-module bundling, SuperAdmin can toggle individual functionality independently — per plan default, or per-company override (§2.2). Suggested flaggable list (adjust as needed):
-- Attendance Tracking
-- Leave Management
-- Timesheet
-- DCR
-- Expense Reimbursement
-- Accounting — Vendor/PO
-- Accounting — Customer/Quotation/SO/Invoice
-- GST support (on Quotation/PO/Invoice)
-- Bank Statement Import
-- Sub-team / 2nd Department Level (already existed as a flag, main spec §16.5)
-
-A company's *effective* access to a feature = Plan default, **unless** overridden per-company (§2.2).
+### 3.2 Employee-level access
+Within an enabled module, employee capabilities and Permission Template actions
+provide the next level of control. Capabilities are independent checkboxes:
+HR, Finance, Operations, Sales, Support, and Software Engineer. Templates then
+grant canonical actions and individual reports. Navigation is only a display
+convenience; API/page guards enforce the same checks.
 
 ---
 
@@ -73,7 +69,10 @@ A company's *effective* access to a feature = Plan default, **unless** overridde
 
 - SuperAdmin can **create, edit, and deactivate** plans — not limited to the two v1 defaults (Basic, Pro); more can be added later (e.g., a future "Enterprise" tier)
 - Each plan has: Name, Offer Price, Original/Strikethrough Price, Feature Bundle (§3), and an **Active** toggle
-- **The Active toggle controls visibility/purchasability on the public Registration/Pricing pages** — plans marked Active show a live "select/purchase" option; inactive plans still appear but **grayed out with a "Coming Soon" badge** rather than being hidden entirely. Existing companies already on a plan that's later deactivated are unaffected.
+- **The Active toggle controls both availability and access** — plans marked
+  Active show a live select/purchase option; inactive plans may appear as
+  "Coming Soon", but companies assigned to an inactive plan cannot use its
+  modules until an active plan is assigned.
 
 ---
 
@@ -99,11 +98,15 @@ This wasn't explicitly scoped before now — flag if you want this simpler (e.g.
 
 ---
 
-## 7. Audit Trail (Manage as Admin actions)
+## 7. Audit Trail (Manage as Admin and RBAC actions)
 
 - Every action SuperAdmin performs while in "Manage as Admin" mode (§2.4) for a company is logged: timestamp, SuperAdmin identity, company, action type (e.g., "Created employee," "Changed approval hierarchy depth," "Deactivated department"), and the entity affected
 - Viewable by SuperAdmin in a dedicated **Audit Log** screen, filterable by company, date range, and action type
 - Not visible to Company Admin/employees in v1 — it's a SuperAdmin-facing accountability record, not a company-facing activity feed (flag if you'd want the company to see when SuperAdmin acted on their behalf)
+- Permission-template creation/updates and employee access changes (including
+  hierarchy, capability flags, mark-left, and password reset actions) are also
+  recorded as RBAC audit events. The existing `audit_logs.superadmin_id`
+  column stores the actor user reference for these events.
 
 ---
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 export default function ReceivePaymentsPage() {
   const [invoices, setInvoices] = useState<any[]>([]);
@@ -18,6 +19,7 @@ export default function ReceivePaymentsPage() {
   const [payerAccount, setPayerAccount] = useState("");
   const [mode, setMode] = useState("bank_transfer");
   const [reference, setReference] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -84,38 +86,63 @@ export default function ReceivePaymentsPage() {
     event.preventDefault();
     setSaving(true);
     setError(null);
-    const response = await fetch("/api/app/finance/receive-payments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        receipt_type: receiptType,
-        payment_mode: mode,
-        reference_number: reference,
-        received_at: date,
-        amount: netTotal,
-        tds_amount:
-          receiptType === "invoice" && allocations.length
-            ? 0
-            : Number(tdsAmount || 0),
-        discount_amount:
-          receiptType === "invoice" && allocations.length
-            ? 0
-            : Number(discountAmount || 0),
-        payer_account_id: payerAccount,
-        allocations: receiptType === "advance" ? [] : allocations,
-      }),
-    });
-    const result = await response.json().catch(() => ({}));
-    setSaving(false);
-    if (!response.ok) {
-      setError(
-        typeof result.error === "string"
-          ? result.error
-          : "Could not post the receipt.",
-      );
-      return;
+    try {
+      let attachmentPath: string | null = null;
+      let attachmentName: string | null = null;
+      if (attachment) {
+        const supabase = createClient();
+        const { data: auth } = await supabase.auth.getUser();
+        const { data: userRow, error: userError } = await supabase
+          .from("users")
+          .select("company_id")
+          .eq("id", auth.user?.id)
+          .single();
+        if (userError || !userRow?.company_id) throw new Error("Could not determine the company for the attachment.");
+        const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `${userRow.company_id}/receipts/${Date.now()}-${safeName}`;
+        const upload = await supabase.storage.from("transaction-documents").upload(path, attachment, { upsert: false });
+        if (upload.error) throw new Error(upload.error.message);
+        attachmentPath = upload.data.path;
+        attachmentName = attachment.name;
+      }
+      const response = await fetch("/api/app/finance/receive-payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          receipt_type: receiptType,
+          payment_mode: mode,
+          reference_number: reference,
+          attachment_path: attachmentPath,
+          attachment_name: attachmentName,
+          received_at: date,
+          amount: netTotal,
+          tds_amount:
+            receiptType === "invoice" && allocations.length
+              ? 0
+              : Number(tdsAmount || 0),
+          discount_amount:
+            receiptType === "invoice" && allocations.length
+              ? 0
+              : Number(discountAmount || 0),
+          payer_account_id: payerAccount,
+          allocations: receiptType === "advance" ? [] : allocations,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(
+          typeof result.error === "string"
+            ? result.error
+            : "Could not post the receipt.",
+        );
+        return;
+      }
+      window.location.reload();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not post the receipt.");
+    } finally {
+      setSaving(false);
     }
-    window.location.reload();
   }
   return (
     <div className="max-w-4xl">
@@ -284,6 +311,18 @@ export default function ReceivePaymentsPage() {
             value={reference}
             onChange={(event) => setReference(event.target.value)}
           />
+        </label>
+        <label>
+          <span className="label">Supporting document</span>
+          <input
+            className="input mt-1 w-full"
+            type="file"
+            accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv"
+            onChange={(event) => setAttachment(event.target.files?.[0] || null)}
+          />
+          <span className="mt-1 block text-xs text-ink-500">
+            Attach the bank advice, receipt, or other proof of receipt.
+          </span>
         </label>
         {receiptType === "invoice" && (
           <div className="divide-y divide-ink-100 rounded border border-ink-100">

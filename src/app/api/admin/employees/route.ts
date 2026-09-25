@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendEmail, emailTemplates } from "@/lib/resend";
+import { writeAuditLog } from "@/lib/audit-log";
 
 const EmployeeSchema = z.object({
   name: z.string().min(2),
@@ -17,11 +18,14 @@ const EmployeeSchema = z.object({
   title_id: z.string().uuid().optional().nullable(),
   reporting_manager_id: z.string().uuid().optional().nullable(),
   is_root: z.boolean().optional(),
-  is_manager: z.boolean().optional(),
-  is_director: z.boolean().optional(),
+  hierarchy_role: z.enum(["employee", "manager", "director", "ceo"]).default("employee"),
   is_finance: z.boolean().optional(),
   finance_scope: z.enum(["department", "company"]).optional().nullable(),
   is_hr: z.boolean().optional(),
+  is_software_engineer: z.boolean().optional(),
+  is_sales: z.boolean().optional(),
+  is_operations: z.boolean().optional(),
+  is_support: z.boolean().optional(),
   hr_screens: z.array(z.string()).optional(),
   emergency_contact_name: z.string().optional(),
   emergency_contact_phone: z.string().optional(),
@@ -47,7 +51,11 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
-  const { is_root, ...data } = parsed.data;
+  const { is_root, hierarchy_role: requestedRole, ...data } = parsed.data;
+  const hierarchy_role = is_root ? "ceo" : requestedRole === "ceo" ? "employee" : requestedRole;
+  if (hierarchy_role !== "ceo" && !data.reporting_manager_id) {
+    return NextResponse.json({ error: "Only the CEO can be the root employee. Select a reporting manager." }, { status: 400 });
+  }
 
   const admin = createAdminClient();
   const companyId = guard.profile.company_id;
@@ -98,6 +106,9 @@ export async function POST(request: Request) {
     .from("employees")
     .insert({
       ...data,
+      hierarchy_role,
+      is_manager: hierarchy_role === "manager" || hierarchy_role === "director",
+      is_director: hierarchy_role === "director",
       reporting_manager_id: is_root ? null : data.reporting_manager_id,
       company_id: companyId,
       user_id: authUser.user.id,
@@ -131,6 +142,8 @@ export async function POST(request: Request) {
       { status: 502 }
     );
   }
+
+  await writeAuditLog({ superadminUserId: guard.user.id, companyId: companyId!, actionType: "employee_created", entityType: "employee", entityId: employee.id, details: { hierarchy_role, capabilities: { is_finance: data.is_finance, is_hr: data.is_hr, is_software_engineer: data.is_software_engineer, is_sales: data.is_sales, is_operations: data.is_operations, is_support: data.is_support } } });
 
   return NextResponse.json({ employee });
 }

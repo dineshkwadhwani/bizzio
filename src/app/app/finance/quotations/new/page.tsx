@@ -19,6 +19,7 @@ export default function NewQuotationPage() {
   const [lines, setLines] = useState<any[]>([{ ...INITIAL_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [attachment, setAttachment] = useState<File | null>(null);
 
   useEffect(() => {
     async function loadCustomers() {
@@ -78,6 +79,17 @@ export default function NewQuotationPage() {
       return;
     }
 
+    if (attachment) {
+      const supabase = (await import("@/lib/supabase/client")).createClient();
+      const { data: auth } = await supabase.auth.getUser();
+      const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single();
+      const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${userRow?.company_id}/quotations/${json.quotation.id}-${Date.now()}-${safeName}`;
+      const uploaded = await supabase.storage.from("transaction-documents").upload(path, attachment, { upsert: false });
+      if (uploaded.error) { setError("Quotation created, but the document could not be uploaded."); return; }
+      const linked = await fetch(`/api/app/finance/quotations/${json.quotation.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attachment_path: uploaded.data.path, attachment_name: attachment.name }) });
+      if (!linked.ok) await supabase.storage.from("transaction-documents").remove([uploaded.data.path]);
+    }
     router.push(`/app/finance/quotations/${json.quotation.id}`);
   }
 
@@ -89,6 +101,7 @@ export default function NewQuotationPage() {
           <label className="label">Quotation title</label>
           <input className="input" placeholder="e.g. Office catering proposal" value={title} onChange={(e) => setTitle(e.target.value)} required />
         </div>
+        <div><label className="label">Supporting document</label><input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /><p className="mt-1 text-xs text-ink-500">Attach the customer quotation, proposal, or supporting scope document.</p></div>
         <div>
           <label className="label">Customer</label>
           <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { effectiveToggles } from "@/lib/permissions";
+import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
 import { formatDate, formatINR } from "@/lib/utils";
 import { PrintButton } from "@/components/finance/PrintButton";
 
@@ -19,7 +19,9 @@ export default async function AccountReportPage({ params, searchParams }: { para
   const template = Array.isArray((employee as any)?.permission_templates) ? (employee as any).permission_templates[0] : (employee as any)?.permission_templates;
   const toggles = effectiveToggles(template?.toggles, employee?.permission_overrides);
   const { data: feature } = employee ? await supabase.from("company_feature_overrides").select("enabled").eq("company_id", employee.company_id).eq("feature_key", "finance_reports").maybeSingle() : { data: null };
-  if (!employee?.is_finance || !toggles.finance_reports || feature?.enabled === false) return <div className="card p-6 text-sm text-red-600">Finance Reports permission is required to view account transactions.</div>;
+  const { data: company } = employee ? await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle() : { data: null };
+  const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
+  if (!employee?.is_finance || !plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "finance") || !toggles.view_finance_balance_sheet || feature?.enabled === false) return <div className="card p-6 text-sm text-red-600">Finance Reports permission is required to view account transactions.</div>;
 
   const asOf = searchParams?.asOf && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.asOf) ? searchParams.asOf : new Date().toISOString().slice(0, 10);
   const { data: account, error: accountError } = await supabase.from("account_heads").select("id, name, type, is_active").eq("id", params.id).eq("company_id", employee.company_id).single();

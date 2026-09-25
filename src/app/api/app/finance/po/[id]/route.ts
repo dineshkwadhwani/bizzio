@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
+import { removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -41,7 +42,7 @@ function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: nu
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_purchase_orders");
     const supabase = createClient();
     const { data: po, error: poError } = await supabase
       .from("purchase_orders")
@@ -72,7 +73,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_purchase_orders");
     const parsed = UpdateSchema.safeParse(await request.json());
 
     if (!parsed.success) {
@@ -81,6 +82,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const supabase = createClient();
     const updates: Record<string, any> = {};
+    const { data: previousPurchaseOrder } = await supabase.from("purchase_orders").select("supplier_quotation_path").eq("id", params.id).eq("company_id", guard.employee.company_id).maybeSingle();
 
     if (parsed.data.vendor_id) {
       const { data: vendor, error: vendorError } = await supabase
@@ -117,6 +119,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (poError) {
         if (poError.code === "PGRST116") return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });
         return NextResponse.json({ error: poError.message }, { status: 500 });
+      }
+      if (previousPurchaseOrder?.supplier_quotation_path && previousPurchaseOrder.supplier_quotation_path !== po.supplier_quotation_path) {
+        await removeUnreferencedAttachments(supabase, guard.employee.company_id, [{ path: previousPurchaseOrder.supplier_quotation_path, bucket: "purchase-order-documents" }]);
       }
 
       if (parsed.data.lines && parsed.data.lines.length) {
@@ -162,7 +167,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_purchase_orders");
     const supabase = createClient();
     const { data: payment } = await supabase
       .from("purchase_order_payments")

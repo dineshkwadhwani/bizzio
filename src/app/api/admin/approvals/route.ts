@@ -17,6 +17,7 @@ export async function GET() {
     .from("approval_steps")
     .select("*")
     .eq("approver_user_id", guard.user.id)
+    .eq("company_id", guard.profile.company_id)
     .eq("status", "pending")
     .order("created_at");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

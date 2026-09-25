@@ -12,7 +12,7 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
 
   const { data: company } = await supabase
     .from("companies")
-    .select("*, subscription_plans(name, offer_price)")
+    .select("*, subscription_plans(name, offer_price, feature_bundle)")
     .eq("id", params.id)
     .single();
 
@@ -20,7 +20,7 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
 
   const { data: employees } = await supabase
     .from("employees")
-    .select("id, name, email, employee_code, phone, dob, gender, date_of_joining, emergency_contact_name, emergency_contact_phone, bank_account_no, bank_ifsc, bank_name, payable_salary, status, is_manager, is_director, is_finance, finance_scope, is_hr, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
+    .select("id, name, email, employee_code, phone, dob, gender, date_of_joining, emergency_contact_name, emergency_contact_phone, bank_account_no, bank_ifsc, bank_name, payable_salary, status, hierarchy_role, is_manager, is_director, is_finance, finance_scope, is_hr, is_software_engineer, is_sales, is_operations, is_support, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
     .eq("company_id", params.id)
     .order("name");
 
@@ -48,6 +48,17 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
             Rejection reason: {company.rejection_reason}
           </p>
         )}
+      </div>
+
+      <div className="card">
+        <h2 className="font-semibold text-ink-900">Licensed modules</h2>
+        <p className="mt-1 text-sm text-ink-500">Package: {company.subscription_plans?.name ?? "Not assigned"}</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-5">
+          {[["hr", "HR"], ["expense", "Expense"], ["finance", "Finance"], ["timesheets", "Timesheets"], ["dcr", "DCR"]].map(([key, label]) => {
+            const enabled = company.subscription_plans?.feature_bundle?.[key] === true;
+            return <div key={key} className={`rounded-lg border px-3 py-3 text-center ${enabled ? "border-green-200 bg-green-50" : "border-ink-100 bg-ink-50"}`}><p className="text-sm font-medium text-ink-800">{label}</p><p className={`mt-1 text-xs ${enabled ? "text-green-700" : "text-ink-400"}`}>{enabled ? "Enabled" : "Not included"}</p></div>;
+          })}
+        </div>
       </div>
 
       <div className="card">

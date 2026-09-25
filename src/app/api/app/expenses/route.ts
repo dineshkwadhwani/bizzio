@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireRole } from "@/lib/auth-guard";
+import { requireModule } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { notifyEmployeeById } from "@/lib/notifications";
 import { formatINR } from "@/lib/utils";
@@ -24,7 +24,7 @@ const Schema = z.object({
 export async function POST(request: Request) {
   let guard;
   try {
-    guard = await requireRole("employee");
+    guard = await requireModule("expense");
   } catch (res) {
     return res as Response;
   }
@@ -35,11 +35,14 @@ export async function POST(request: Request) {
   const supabase = createClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, reporting_manager_id")
+    .select("id, company_id, reporting_manager_id, hierarchy_role")
     .eq("user_id", guard.user.id)
     .single();
   if (!employee) return NextResponse.json({ error: "Employee record not found" }, { status: 404 });
-  const isRootEmployee = !employee.reporting_manager_id;
+  if (employee.hierarchy_role !== "ceo" && !employee.reporting_manager_id) {
+    return NextResponse.json({ error: "Your employee hierarchy is incomplete. Please contact the company administrator." }, { status: 409 });
+  }
+  const isRootEmployee = employee.hierarchy_role === "ceo";
 
   const headIds = parsed.data.line_items.map((li) => li.account_head_id);
   const { data: heads, error: headsError } = await supabase
@@ -88,6 +91,7 @@ export async function POST(request: Request) {
       entity_id: claim.id,
       level: 1,
       approver_employee_id: employee.reporting_manager_id,
+      company_id: employee.company_id,
       status: "pending"
     });
 

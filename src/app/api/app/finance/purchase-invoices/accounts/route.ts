@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_purchase_invoices");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("account_heads")

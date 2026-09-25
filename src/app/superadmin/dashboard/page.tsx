@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { Building2, Users, TrendingUp, Clock } from "lucide-react";
+import Link from "next/link";
 
 export const revalidate = 0;
 
@@ -7,7 +8,7 @@ export default async function SuperAdminDashboard() {
   const supabase = createClient();
 
   const [{ data: companies }, { count: employeeCount }] = await Promise.all([
-    supabase.from("companies").select("id, status, plan_id, submitted_at"),
+    supabase.from("companies").select("id, name, status, plan_id, submitted_at, subscription_plans(name, feature_bundle)"),
     supabase.from("employees").select("id", { count: "exact", head: true }).eq("status", "active")
   ]);
 
@@ -70,6 +71,41 @@ export default async function SuperAdminDashboard() {
               <span className="text-xs font-semibold text-ink-700">{m.count}</span>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="card mt-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-ink-900">Company packages &amp; modules</h2>
+            <p className="mt-1 text-sm text-ink-500">The package assigned to each company controls which modules are available.</p>
+          </div>
+          <Link href="/superadmin/companies" className="text-sm font-medium text-brand-600 hover:underline">View all companies</Link>
+        </div>
+        <div className="mt-4 space-y-3">
+          {(companies ?? []).map((company: any) => {
+            const bundle = company.subscription_plans?.feature_bundle ?? {};
+            const modules = [
+              ["hr", "HR"], ["expense", "Expense"], ["finance", "Finance"],
+              ["timesheets", "Timesheets"], ["dcr", "DCR"]
+            ] as const;
+            return (
+              <div key={company.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-100 px-3 py-3">
+                <div>
+                  <Link href={`/superadmin/companies/${company.id}`} className="font-medium text-brand-600 hover:underline">{company.name}</Link>
+                  <p className="text-xs text-ink-400">Package: {company.subscription_plans?.name ?? "Not assigned"}</p>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {modules.map(([key, label]) => (
+                    <span key={key} className={`badge ${bundle[key] === true ? "bg-pastel-mint text-ink-700" : "bg-ink-100 text-ink-400"}`}>
+                      {label}: {bundle[key] === true ? "On" : "Off"}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {!companies?.length && <p className="text-sm text-ink-400">No companies found.</p>}
         </div>
       </div>
 

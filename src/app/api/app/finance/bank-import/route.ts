@@ -97,7 +97,7 @@ async function detectPossibleDuplicates(supabase: ReturnType<typeof createClient
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_bank_import");
     const supabase = createClient();
 
     const { data, error } = await supabase
@@ -115,10 +115,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_bank_import");
     const formData = await request.formData();
     const file = formData.get("file");
     const batchName = String(formData.get("batch_name") || "Statement Import");
+    const attachmentPath = String(formData.get("attachment_path") || "").trim() || null;
+    const attachmentName = String(formData.get("attachment_name") || "").trim() || null;
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "A valid .xlsx file is required." }, { status: 400 });
@@ -155,7 +157,9 @@ export async function POST(request: Request) {
         company_id: guard.employee.company_id,
         batch_name: batchName || `Statement Import — ${new Date().toISOString().slice(0, 10)}`,
         uploaded_by: guard.employee.id,
-        file_url: null
+        file_url: null,
+        attachment_path: attachmentPath,
+        attachment_name: attachmentName
       })
       .select("*")
       .single();

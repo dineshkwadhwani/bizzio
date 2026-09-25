@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export default function QuotationDetailPage() {
   const params = useParams();
@@ -9,6 +10,7 @@ export default function QuotationDetailPage() {
   const [data, setData] = useState<any>({ quotation: null, lineItems: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -55,6 +57,21 @@ export default function QuotationDetailPage() {
     }
   }
 
+  async function uploadAttachment(file: File) {
+    setUploading(true); setError(null);
+    const supabase = createClient();
+    const { data: auth } = await supabase.auth.getUser();
+    const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single();
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${userRow?.company_id}/quotations/${data.quotation.id}-${Date.now()}-${safeName}`;
+    const uploaded = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false });
+    if (uploaded.error) { setError(uploaded.error.message); setUploading(false); return; }
+    const linked = await fetch(`/api/app/finance/quotations/${data.quotation.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ attachment_path: uploaded.data.path, attachment_name: file.name }) });
+    const json = await linked.json().catch(() => ({}));
+    if (!linked.ok) { await supabase.storage.from("transaction-documents").remove([uploaded.data.path]); setError(typeof json.error === "string" ? json.error : "Unable to link the document."); } else setData((current: any) => ({ ...current, quotation: { ...current.quotation, attachment_path: uploaded.data.path, attachment_name: file.name } }));
+    setUploading(false);
+  }
+
   if (!data.quotation) {
     return <div className="card">{error ? <p className="text-red-600">{error}</p> : <p>Loading quotation…</p>}</div>;
   }
@@ -85,6 +102,7 @@ export default function QuotationDetailPage() {
             <p className="text-ink-800">{new Date(data.quotation.created_at).toLocaleString()}</p>
           </div>
         </div>
+        <div className="rounded border border-ink-100 bg-ink-50 p-4"><label className="label">Supporting document</label>{data.quotation.attachment_name && data.quotation.attachment_url && <p className="mt-1 text-sm"><a className="text-brand-600 underline" href={data.quotation.attachment_url} target="_blank" rel="noreferrer">📎 {data.quotation.attachment_name}</a></p>}<input className="mt-2 block text-sm" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(file); }} /></div>
 
         <div className="overflow-hidden rounded-lg border border-ink-100">
           <table className="min-w-full text-left text-sm">

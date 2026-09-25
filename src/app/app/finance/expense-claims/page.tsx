@@ -11,6 +11,7 @@ export default function FinanceExpenseClaimsPage() {
   const [comments, setComments] = useState<Record<string, string>>({});
   const [paymentForm, setPaymentForm] = useState<{ claim: any; reference: string; postingDate: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [canApprove, setCanApprove] = useState(false);
   const [canPay, setCanPay] = useState(false);
 
   async function load() {
@@ -18,6 +19,7 @@ export default function FinanceExpenseClaimsPage() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) { setError(result.error || "Could not load expense claims."); return; }
     setClaims(result.claims ?? []);
+    setCanApprove(Boolean(result.can_approve));
     setCanPay(Boolean(result.can_pay));
   }
 
@@ -80,14 +82,14 @@ export default function FinanceExpenseClaimsPage() {
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <Link className="btn-secondary" href={`/app/finance/expense-claims/${claim.id}`}>View claim</Link>
-              {claim.pending_approval_step_id && <>
+              {canApprove && claim.pending_approval_step_id && <>
                 <button type="button" className="btn-primary" disabled={deciding === claim.pending_approval_step_id} onClick={() => void decide(claim.pending_approval_step_id, "approved")}>{deciding === claim.pending_approval_step_id ? "Saving…" : "Approve"}</button>
                 <button type="button" className="btn-secondary" disabled={deciding === claim.pending_approval_step_id} onClick={() => void decide(claim.pending_approval_step_id, "returned")}>Return to employee</button>
                 <button type="button" className="btn-secondary text-red-600" disabled={deciding === claim.pending_approval_step_id} onClick={() => void decide(claim.pending_approval_step_id, "rejected")}>Reject</button>
               </>}
               {canPay && claim.status === "ready_for_payment" && <button type="button" className="btn-primary" disabled={paying === claim.id} onClick={() => startPayment(claim)}>{paying === claim.id ? "Recording…" : "Mark as Paid"}</button>}
             </div>
-            {claim.pending_approval_step_id && <textarea className="input mt-3 w-full" placeholder="Approval notes or comments (required for Return or Reject)" value={comments[claim.pending_approval_step_id] ?? ""} onChange={(event) => setComments((current) => ({ ...current, [claim.pending_approval_step_id]: event.target.value }))} />}
+            {canApprove && claim.pending_approval_step_id && <textarea className="input mt-3 w-full" placeholder="Approval notes or comments (required for Return or Reject)" value={comments[claim.pending_approval_step_id] ?? ""} onChange={(event) => setComments((current) => ({ ...current, [claim.pending_approval_step_id]: event.target.value }))} />}
           </div>
         ))}
         {!claims.length && <p className="text-ink-400">No expense claims requiring finance review.</p>}

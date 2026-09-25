@@ -41,11 +41,14 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
       <div className="card">
         <h2 className="font-semibold text-ink-900">Flags</h2>
         <div className="mt-3 flex flex-wrap gap-2">
-          {employee.is_manager && <span className="badge bg-pastel-sky text-ink-700">Manager</span>}
-          {employee.is_director && <span className="badge bg-pastel-lemon text-ink-700">Director</span>}
+          <span className="badge bg-pastel-sky text-ink-700">{employee.hierarchy_role ?? (employee.reporting_manager_id ? (employee.is_director ? "Director" : employee.is_manager ? "Manager" : "Employee") : "CEO")}</span>
           {employee.is_finance && <span className="badge bg-pastel-mint text-ink-700">Finance ({employee.finance_scope})</span>}
           {employee.is_hr && <span className="badge bg-pastel-lilac text-ink-700">HR</span>}
-          {!employee.is_manager && !employee.is_director && !employee.is_finance && !employee.is_hr && (
+          {employee.is_operations && <span className="badge bg-pastel-sky text-ink-700">Operations</span>}
+          {employee.is_support && <span className="badge bg-pastel-lemon text-ink-700">Support</span>}
+          {employee.is_software_engineer && <span className="badge bg-pastel-sky text-ink-700">Software Engineer</span>}
+          {employee.is_sales && <span className="badge bg-pastel-lemon text-ink-700">Sales</span>}
+          {!employee.is_manager && !employee.is_director && !employee.is_finance && !employee.is_hr && !employee.is_operations && !employee.is_support && !employee.is_software_engineer && !employee.is_sales && (
             <span className="text-sm text-ink-400">No special flags</span>
           )}
         </div>

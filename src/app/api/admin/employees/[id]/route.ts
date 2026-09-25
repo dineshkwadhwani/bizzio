@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
+import { writeAuditLog } from "@/lib/audit-log";
 
 const UpdateSchema = z.object({
   phone: z.string().optional(),
@@ -11,6 +12,14 @@ const UpdateSchema = z.object({
   title_id: z.string().uuid().nullable().optional(),
   reporting_manager_id: z.string().uuid().nullable().optional(),
   status: z.enum(["active", "left"])
+  ,hierarchy_role: z.enum(["employee", "manager", "director", "ceo"]).optional()
+  ,is_finance: z.boolean().optional()
+  ,finance_scope: z.enum(["department", "company"]).nullable().optional()
+  ,is_hr: z.boolean().optional()
+  ,is_software_engineer: z.boolean().optional()
+  ,is_sales: z.boolean().optional()
+  ,is_operations: z.boolean().optional()
+  ,is_support: z.boolean().optional()
 });
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
@@ -36,9 +45,16 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 
   const data = parsed.data;
+  const hierarchy_role = data.hierarchy_role;
   if (data.reporting_manager_id) {
     const { data: manager } = await admin.from("employees").select("id").eq("id", data.reporting_manager_id).eq("company_id", employee.company_id).single();
     if (!manager) return NextResponse.json({ error: "Reporting manager must belong to the same company" }, { status: 400 });
+  }
+  if (hierarchy_role === "ceo" && data.reporting_manager_id) {
+    return NextResponse.json({ error: "The CEO must be the root employee and cannot have a reporting manager." }, { status: 400 });
+  }
+  if (hierarchy_role && hierarchy_role !== "ceo" && !data.reporting_manager_id) {
+    return NextResponse.json({ error: "Only the CEO can be the root employee. Select a reporting manager." }, { status: 400 });
   }
   if (data.department_id) {
     const { data: department } = await admin.from("departments").select("id").eq("id", data.department_id).eq("company_id", employee.company_id).single();
@@ -53,6 +69,11 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     .from("employees")
     .update({
       ...data,
+      ...(hierarchy_role ? {
+        is_manager: hierarchy_role === "manager" || hierarchy_role === "director",
+        is_director: hierarchy_role === "director",
+        reporting_manager_id: hierarchy_role === "ceo" ? null : data.reporting_manager_id
+      } : {}),
       left_at: data.status === "left" ? new Date().toISOString() : null,
       updated_at: new Date().toISOString()
     })
@@ -65,5 +86,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       : error.message;
     return NextResponse.json({ error: message }, { status: 400 });
   }
+  await writeAuditLog({ superadminUserId: guard.user.id, companyId: employee.company_id, actionType: "employee_access_updated", entityType: "employee", entityId: employee.id, details: { changed_fields: Object.keys(data), hierarchy_role: updated.hierarchy_role, capabilities: { is_finance: updated.is_finance, is_hr: updated.is_hr, is_software_engineer: updated.is_software_engineer, is_sales: updated.is_sales, is_operations: updated.is_operations, is_support: updated.is_support } } });
   return NextResponse.json({ employee: updated });
 }

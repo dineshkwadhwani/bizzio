@@ -29,7 +29,7 @@ import {
   Users,
   X
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -76,6 +76,13 @@ export function DashboardShell({
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSection, setOpenSection] = useState<string | null>(navItems[0]?.section ?? null);
   const [identity, setIdentity] = useState<DashboardIdentity | null>(initialIdentity ?? null);
+  const previousPathname = useRef(pathname);
+
+  useEffect(() => {
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
+    router.refresh();
+  }, [pathname, router]);
 
   useEffect(() => {
     const supabase = createClient();

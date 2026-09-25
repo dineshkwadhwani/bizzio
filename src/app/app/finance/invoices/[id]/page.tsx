@@ -199,20 +199,20 @@ export default function InvoiceDetailPage() {
             <thead className="bg-ink-50 text-ink-600">
               <tr>
                 <th className="px-3 py-2">Description</th>
-                <th className="px-3 py-2">Qty</th>
-                <th className="px-3 py-2">Rate</th>
-                <th className="px-3 py-2">GST</th>
-                <th className="px-3 py-2">Item Total</th>
+                <th className="w-16 px-3 py-2 text-center">Qty</th>
+                <th className="w-28 px-3 py-2 text-right">Rate</th>
+                <th className="w-24 px-3 py-2 text-center">GST</th>
+                <th className="w-32 px-3 py-2 text-right">Line Total</th>
               </tr>
             </thead>
             <tbody>
               {(data.lineItems || []).map((line: any) => (
                 <tr key={line.id} className="border-t border-ink-100">
                   <td className="px-3 py-2">{line.description}</td>
-                  <td className="px-3 py-2">{line.qty}</td>
-                  <td className="px-3 py-2">₹{Number(line.rate).toFixed(2)}</td>
-                  <td className="px-3 py-2">{line.gst_percent}% ({line.gst_type})</td>
-                  <td className="px-3 py-2">₹{Number(line.line_total).toFixed(2)}</td>
+                  <td className="px-3 py-2 text-center">{line.qty}</td>
+                  <td className="px-3 py-2 text-right">₹{Number(line.rate).toFixed(2)}</td>
+                  <td className="px-3 py-2 text-center">{line.gst_percent}%</td>
+                  <td className="px-3 py-2 text-right font-medium">₹{Number(line.line_total).toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>

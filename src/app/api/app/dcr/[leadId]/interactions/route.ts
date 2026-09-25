@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
-import { effectiveToggles } from "@/lib/permissions";
+import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: { leadId: str
   const supabase = createClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, permission_overrides, permission_templates(toggles)")
+    .select("id, company_id, is_sales, permission_overrides, permission_templates(toggles)")
     .eq("user_id", guard.user.id)
     .single();
   if (!employee) return NextResponse.json({ error: "Employee record not found" }, { status: 404 });
@@ -40,7 +40,9 @@ export async function POST(request: Request, { params }: { params: { leadId: str
     Array.isArray((employee as any)?.permission_templates) ? (employee as any).permission_templates[0]?.toggles : (employee as any)?.permission_templates?.toggles,
     (employee as any)?.permission_overrides
   );
-  if (!toggles.submit_dcr) return NextResponse.json({ error: "DCR access is not enabled for this employee" }, { status: 403 });
+  const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
+  const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
+  if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !toggles.submit_dcr) return NextResponse.json({ error: "DCR access is not enabled for this employee" }, { status: 403 });
 
   const { data: lead } = await supabase
     .from("dcr_leads")

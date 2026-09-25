@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { createBalancedJournal, ensureInvoiceIssuedJournal } from "@/lib/finance-ledger";
 
@@ -83,7 +83,7 @@ async function getNextInvoiceNumber(supabase: ReturnType<typeof createClient>, c
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("invoices")
@@ -100,7 +100,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const body = await request.json();
     const parsed = InvoiceSchema.safeParse(body);
 

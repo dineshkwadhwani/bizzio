@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
 import { notifyEmployeeById } from "@/lib/notifications";
+import { effectiveToggles } from "@/lib/permissions";
 
 /**
  * Shared Approval Engine decision endpoint (main spec §7, Database-Schema §3).
@@ -33,12 +34,17 @@ export async function POST(
   // hide a valid approval step created for that employee.
   const database = createAdminClient();
   const { data: approver } = guard.profile.role === "employee"
-    ? await database.from("employees").select("id, company_id").eq("user_id", guard.user.id).single()
+    ? await database.from("employees").select("id, company_id, status, left_at, hierarchy_role, permission_overrides, permission_templates(toggles)").eq("user_id", guard.user.id).single()
     : { data: { id: null, company_id: guard.profile.company_id } };
   if (!approver) return NextResponse.json({ error: "Approver record not found" }, { status: 404 });
 
   const { data: step } = await database.from("approval_steps").select("*").eq("id", params.stepId).single();
-  const isAuthorized = step && step.status === "pending" && (
+  const approverTemplate = Array.isArray((approver as any).permission_templates) ? (approver as any).permission_templates[0] : (approver as any).permission_templates;
+  const approverToggles = effectiveToggles(approverTemplate?.toggles, (approver as any).permission_overrides);
+  const requiredApprovalPermission = step?.entity_type === "leave_request" ? "approve_leave" : step?.entity_type === "expense_claim" ? "approve_expenses" : null;
+  const hasRequiredApprovalPermission = guard.profile.role === "company_admin" || !requiredApprovalPermission || approverToggles[requiredApprovalPermission] === true;
+  const isAuthorized = step && step.company_id === approver.company_id && step.status === "pending" && hasRequiredApprovalPermission &&
+    (guard.profile.role === "company_admin" || (approver.status === "active" && !approver.left_at && ["manager", "director"].includes(approver.hierarchy_role ?? ""))) && (
     step.approver_employee_id === approver.id ||
     step.approver_user_id === guard.user.id
   );
@@ -97,11 +103,11 @@ async function handleTimesheetDecision(supabase: any, step: any, decision: strin
 }
 
 async function handleExpenseDecision(supabase: any, step: any, decision: string, companyId: string) {
-  const { data: claim } = await supabase.from("expense_claims").select("*, employee:employees(*, users!employees_user_id_fkey(id, email))").eq("id", step.entity_id).single();
+  const { data: claim } = await supabase.from("expense_claims").select("*, employee:employees(*, users!employees_user_id_fkey(id, email))").eq("id", step.entity_id).eq("company_id", companyId).single();
   if (!claim) return;
 
   if (decision === "returned") {
-    await supabase.from("expense_claims").update({ status: "draft", submitted_at: null }).eq("id", claim.id);
+      await supabase.from("expense_claims").update({ status: "draft", submitted_at: null }).eq("id", claim.id).eq("company_id", companyId);
     if (claim.employee?.user_id) {
       await notifyEmployeeById(claim.employee_id, {
         type: "expense_claim_decision",
@@ -115,7 +121,7 @@ async function handleExpenseDecision(supabase: any, step: any, decision: string,
   }
 
   if (decision === "rejected") {
-    await supabase.from("expense_claims").update({ status: "rejected" }).eq("id", claim.id);
+    await supabase.from("expense_claims").update({ status: "rejected" }).eq("id", claim.id).eq("company_id", companyId);
     if (claim.employee?.user_id) {
       await notifyEmployeeById(claim.employee_id, {
         type: "expense_claim_decision",
@@ -128,7 +134,24 @@ async function handleExpenseDecision(supabase: any, step: any, decision: string,
     return;
   }
 
-  await supabase.from("expense_claims").update({ status: "ready_for_payment" }).eq("id", claim.id);
+  const { data: company } = await supabase.from("companies").select("approval_hierarchy_depth").eq("id", companyId).single();
+  if (step.level === 1 && company?.approval_hierarchy_depth === 2) {
+    const { data: approver } = await supabase.from("employees").select("reporting_manager_id").eq("id", step.approver_employee_id).single();
+    if (approver?.reporting_manager_id) {
+      await supabase.from("expense_claims").update({ status: "pending_level2" }).eq("id", claim.id).eq("company_id", companyId);
+      await supabase.from("approval_steps").insert({
+        entity_type: "expense_claim",
+        entity_id: claim.id,
+        company_id: companyId,
+        level: 2,
+        approver_employee_id: approver.reporting_manager_id,
+        status: "pending"
+      });
+      return;
+    }
+  }
+
+  await supabase.from("expense_claims").update({ status: "ready_for_payment" }).eq("id", claim.id).eq("company_id", companyId);
   if (claim.employee?.user_id) {
     await notifyEmployeeById(claim.employee_id, {
       type: "expense_claim_decision",
@@ -141,11 +164,11 @@ async function handleExpenseDecision(supabase: any, step: any, decision: string,
 }
 
 async function handleLeaveDecision(supabase: any, step: any, decision: string, companyId: string) {
-  const { data: leaveRequest } = await supabase.from("leave_requests").select("*").eq("id", step.entity_id).single();
+  const { data: leaveRequest } = await supabase.from("leave_requests").select("*").eq("id", step.entity_id).eq("company_id", companyId).single();
   if (!leaveRequest) return;
 
   if (decision === "rejected") {
-    await supabase.from("leave_requests").update({ status: "rejected" }).eq("id", leaveRequest.id);
+    await supabase.from("leave_requests").update({ status: "rejected" }).eq("id", leaveRequest.id).eq("company_id", companyId);
     return;
   }
 
@@ -157,10 +180,11 @@ async function handleLeaveDecision(supabase: any, step: any, decision: string, c
     // Need a second approval — resolve the approver's own manager.
     const { data: approverRow } = await supabase.from("employees").select("reporting_manager_id").eq("id", step.approver_employee_id).single();
     if (approverRow?.reporting_manager_id) {
-      await supabase.from("leave_requests").update({ status: "pending_level2" }).eq("id", leaveRequest.id);
+      await supabase.from("leave_requests").update({ status: "pending_level2" }).eq("id", leaveRequest.id).eq("company_id", companyId);
       await supabase.from("approval_steps").insert({
         entity_type: "leave_request",
         entity_id: leaveRequest.id,
+        company_id: companyId,
         level: 2,
         approver_employee_id: approverRow.reporting_manager_id,
         status: "pending"
@@ -170,7 +194,7 @@ async function handleLeaveDecision(supabase: any, step: any, decision: string, c
   }
 
   // Fully approved — mark attendance and decrement balance (Module 3 §2.2).
-  await supabase.from("leave_requests").update({ status: "approved" }).eq("id", leaveRequest.id);
+  await supabase.from("leave_requests").update({ status: "approved" }).eq("id", leaveRequest.id).eq("company_id", companyId);
 
   const dates: string[] = [];
   const cursor = new Date(leaveRequest.start_date);

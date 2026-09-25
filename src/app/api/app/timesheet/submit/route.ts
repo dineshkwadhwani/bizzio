@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { effectiveToggles } from "@/lib/permissions";
+import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
 import { notifyEmployeeById } from "@/lib/notifications";
 
 export async function POST() {
@@ -15,7 +15,7 @@ export async function POST() {
   const supabase = createClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, reporting_manager_id, permission_template_id, permission_overrides, permission_templates(toggles)")
+    .select("id, company_id, is_software_engineer, reporting_manager_id, permission_template_id, permission_overrides, permission_templates(toggles)")
     .eq("user_id", guard.user.id)
     .single();
 
@@ -25,7 +25,9 @@ export async function POST() {
     ? (employee as any).permission_templates[0]
     : (employee as any)?.permission_templates;
   const toggles = effectiveToggles(template?.toggles, (employee as any)?.permission_overrides);
-  if (!toggles.submit_timesheet) {
+  const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
+  const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
+  if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "timesheets") || !employee.is_software_engineer || !toggles.submit_timesheet) {
     return NextResponse.json({ error: "Timesheet access is not enabled for this employee" }, { status: 403 });
   }
 
@@ -54,6 +56,7 @@ export async function POST() {
       await supabase.from("approval_steps").insert({
         entity_type: "timesheet",
         entity_id: insertedTimesheet.id,
+        company_id: employee.company_id,
         level: 1,
         approver_employee_id: employee.reporting_manager_id,
         status: "pending"
@@ -88,6 +91,7 @@ export async function POST() {
     await supabase.from("approval_steps").insert({
       entity_type: "timesheet",
       entity_id: updatedTimesheet.id,
+      company_id: employee.company_id,
       level: 1,
       approver_employee_id: employee.reporting_manager_id,
       status: "pending"

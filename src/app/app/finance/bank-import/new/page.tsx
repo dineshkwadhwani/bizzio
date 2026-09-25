@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 
 export default function NewBankImportPage() {
   const router = useRouter();
@@ -19,25 +20,43 @@ export default function NewBankImportPage() {
 
     setLoading(true);
     setError(null);
+    try {
+      const supabase = createClient();
+      const { data: auth } = await supabase.auth.getUser();
+      const { data: userRow, error: userError } = await supabase
+        .from("users")
+        .select("company_id")
+        .eq("id", auth.user?.id)
+        .single();
+      if (userError || !userRow?.company_id) throw new Error("Could not determine the company for the document.");
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${userRow.company_id}/bank-imports/${Date.now()}-${safeName}`;
+      const upload = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false });
+      if (upload.error) throw new Error(upload.error.message);
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("batch_name", batchName || `Statement Import — ${new Date().toISOString().slice(0, 10)}`);
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("batch_name", batchName || `Statement Import — ${new Date().toISOString().slice(0, 10)}`);
+      formData.append("attachment_path", upload.data.path);
+      formData.append("attachment_name", file.name);
 
-    const res = await fetch("/api/app/finance/bank-import", {
-      method: "POST",
-      body: formData
-    });
+      const res = await fetch("/api/app/finance/bank-import", {
+        method: "POST",
+        body: formData
+      });
 
-    const json = await res.json();
-    setLoading(false);
+      const json = await res.json();
+      if (!res.ok) {
+        setError(typeof json.error === "string" ? json.error : "Unable to upload the statement.");
+        return;
+      }
 
-    if (!res.ok) {
-      setError(typeof json.error === "string" ? json.error : "Unable to upload the statement.");
-      return;
+      router.push(`/app/finance/bank-import/${json.importRecord.id}`);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Unable to upload the statement.");
+    } finally {
+      setLoading(false);
     }
-
-    router.push(`/app/finance/bank-import/${json.importRecord.id}`);
   }
 
   return (

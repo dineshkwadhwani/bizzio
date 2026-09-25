@@ -47,7 +47,7 @@
 | offer_price | numeric | 0 for Basic |
 | original_price | numeric | strikethrough price |
 | is_active | boolean | controls "Coming Soon" vs purchasable (Module 7 §4) |
-| feature_bundle | jsonb | `{ "attendance": true, "accounting_vendor": true, ... }` — default flags per §3 of Module 7 |
+| feature_bundle | jsonb | Canonical module bundle: `{ "hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true }` |
 | created_at | timestamptz | |
 
 ### `company_feature_overrides`
@@ -83,7 +83,7 @@ PK: `(company_id, feature_key)`
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| superadmin_id | uuid FK → users | |
+| superadmin_id | uuid FK → users | Existing column used as the actor user reference for SuperAdmin and Company Admin RBAC audit events |
 | company_id | uuid FK | which company was acted on |
 | action_type | text | e.g. "created_employee", "changed_approval_depth" |
 | entity_type / entity_id | text / uuid | polymorphic reference to affected row |
@@ -104,7 +104,7 @@ id, company_id, department_id (FK), name, is_active, created_at
 id, company_id, name, default_permission_template_id (FK permission_templates, nullable), is_active, created_at
 
 ### `permission_templates`
-id, company_id, name, title_id (FK titles, nullable — the title it's linked to as default), toggles (jsonb — the action-toggle matrix, e.g. `{ "submit_timesheet": true, "mark_attendance": true, "apply_leave": true, "raise_expense": true, "hr_screens": [...] }`), created_at
+id, company_id, name, title_id (FK titles, nullable — the title it's linked to as default), toggles (jsonb — canonical permissions from HR & workflows, Operations, Sales, Finance, Reports, Time, and Support), created_at
 
 ### `employees`
 | Column | Type | Notes |
@@ -120,12 +120,14 @@ id, company_id, name, title_id (FK titles, nullable — the title it's linked to
 | department_id | uuid FK nullable | |
 | subteam_id | uuid FK nullable | only used if company's subteam feature is on |
 | title_id | uuid FK nullable | |
-| reporting_manager_id | uuid FK → employees, nullable | null only for the root employee |
+| reporting_manager_id | uuid FK → employees, nullable | null only for the CEO/root employee |
 | profile_photo_url | text nullable | |
 | emergency_contact_name / emergency_contact_phone | text nullable | optional per Module 2 §4.2 |
 | bank_account_no / bank_ifsc / bank_name | text nullable | optional, reference only |
 | payable_salary | numeric nullable | used only by Pay Salary action (Module 6 §8) |
-| is_manager / is_director / is_finance / is_hr | boolean | |
+| hierarchy_role | enum | `employee`, `manager`, `director`, `ceo`; source of truth for hierarchy and approvals |
+| is_hr / is_finance / is_operations / is_sales / is_support / is_software_engineer | boolean | Independent capability flags; an employee may have multiple flags |
+| is_manager / is_director | boolean | Legacy display fields synchronized from `hierarchy_role` |
 | finance_scope | enum nullable | `department`, `company` — only when is_finance |
 | hr_screens | jsonb nullable | selected screens — only when is_hr |
 | permission_template_id | uuid FK nullable | starting template; overrides stored below |
@@ -194,6 +196,7 @@ Generic table reused by Leave, Timesheet (if submit-for-approval), and Expense �
 | comment | text nullable | mandatory when status = rejected |
 | decided_at | timestamptz nullable | |
 | created_at | timestamptz | |
+| company_id | uuid FK → companies | materialized tenant key used by RLS |
 
 ---
 
@@ -254,7 +257,7 @@ id, claim_id (FK, one-to-one), payment_mode (enum: cash/cheque/bank_transfer), r
 | created_at | timestamptz | |
 
 ### `account_head_requests`
-id, company_id, requested_by (employee_id FK, isFinance), proposed_name, proposed_type, reason, status (enum: pending/approved/rejected), admin_comment, decided_by, decided_at, created_at
+id, company_id, requested_by (employee_id FK, Finance capability), proposed_name, proposed_type, reason, status (enum: pending/approved/rejected), admin_comment, decided_by, decided_at, created_at
 
 ### `vendors`
 id, company_id, name, gstin (nullable), address, state, contact_person, contact_email, contact_phone, bank_account_no, bank_ifsc, bank_name (all bank fields nullable), party_account_head_id (FK account_heads, auto-created on insert), is_active, created_at
@@ -281,13 +284,28 @@ id, company_id, customer_id (FK), quotation_id (FK, source — mandatory, SO alw
 id, so_id (FK), description, qty, rate, gst_percent, gst_type, cgst_amount, sgst_amount, igst_amount, line_total (carried from quotation, editable)
 
 ### `invoices`
-id, company_id, customer_id (FK), so_id (FK), invoice_number (`INV-YYYY-####`), status (enum: draft/reviewed/sent/paid), base_amount, gst_amount, total_amount, sent_at, created_by, created_at
+id, company_id, customer_id (FK), so_id (FK nullable), invoice_number (`INV-YYYY-####`), status (enum: draft/reviewed/sent/paid), invoice_date, base_amount, gst_amount, total_amount, attachment_path/name (legacy single document), sent_at, created_by, created_at
 
 ### `invoice_line_items`
 id, invoice_id (FK), description, qty, rate, gst_percent, gst_type, cgst_amount, sgst_amount, igst_amount, line_total
 
+### `invoice_attachments`
+id, invoice_id (FK), company_id, storage_path, file_name, created_by, created_at. Multiple private supporting documents may be attached to a sales invoice.
+
+### `purchase_invoices`
+id, company_id, vendor_id (FK), purchase_order_id (FK nullable), title, invoice_number (`PIN-YYYY-####`), vendor_invoice_number, invoice_date, due_date, status (enum: draft/received/partially_paid/paid/cancelled), base_amount, gst_amount, total_amount, attachment_path, attachment_name, created_by, created_at.
+
+Purchase invoice line items store `account_head_id`, description, qty, rate,
+GST fields, and `line_total`. `purchase_invoice_payments` stores partial/full
+payments with payment mode, reference, amount, paid date, journal/event links,
+and optional attachment path/name.
+
 ### `receipts`
-id, invoice_id (FK, one-to-one), receipt_number (`RCT-YYYY-####`), payment_mode, reference_number, amount, received_by (employee_id), received_at
+id, invoice_id (FK), receipt_number (`RCT-YYYY-####`), payment_mode, reference_number, amount, amount_received, taxable_amount, gst_amount, tds_amount, discount_amount, delta_treatment, attachment_path, attachment_name, post_to_ledger, non_posting_comment, received_by (employee_id), received_at, journal_id
+
+Receipts may settle an invoice, record an advance, or be standalone depending
+on the payment workflow. Ledger-posting receipts create balanced settlement
+journals; non-posting receipts require a reason comment.
 
 ### `ledger_entries` (the core postings table — feeds Balance Sheet / P&L / all financial reports)
 | Column | Type | Notes |
@@ -298,7 +316,7 @@ id, invoice_id (FK, one-to-one), receipt_number (`RCT-YYYY-####`), payment_mode,
 | entry_type | enum | `debit`, `credit` |
 | amount | numeric | |
 | is_accountable | boolean | default true; only user-editable for manually-entered sources (ad-hoc expense/income, salary, bank import) |
-| source_type | enum | `expense_claim`, `invoice_receipt`, `adhoc_expense`, `adhoc_income`, `salary_paid`, `bank_import_row` |
+| source_type | enum | Includes `expense_claim`, `invoice_issued`, `invoice_receipt`, `purchase_invoice_issued`, `purchase_invoice_payment`, `customer_advance`, `customer_advance_application`, `adhoc_expense`, `adhoc_income`, `salary_paid`, `bank_import_row`, `manual_journal`, and `opening_balance` |
 | source_id | uuid | polymorphic reference to the originating record |
 | payment_mode | enum nullable | cash/cheque/bank_transfer |
 | reference_number | text nullable | |
@@ -306,6 +324,15 @@ id, invoice_id (FK, one-to-one), receipt_number (`RCT-YYYY-####`), payment_mode,
 | entry_date | date | |
 | created_by | uuid FK → employees | |
 | created_at | timestamptz | |
+
+`ledger_entries` also supports transaction-event grouping and optional
+attachment metadata (`transaction_event_id`, `attachment_path`,
+`attachment_name`, `attachment_bucket`).
+
+### `transaction_events`
+id, company_id, event_type, source_type, source_id, event_date, description,
+reference_number, primary_journal_id, created_by, created_at. This groups all
+balanced journals belonging to one business event for reporting.
 
 Every money-movement in the system (expense claim paid, receipt created, ad-hoc entry, salary paid, bank import posted) ultimately writes one or more rows here. Balance Sheet/P&L are computed by aggregating `ledger_entries` grouped by `account_heads.type`.
 
@@ -345,19 +372,14 @@ All buckets private; access via signed URLs scoped by RLS-equivalent checks in S
 
 ---
 
-## 9. Enumerated Feature Keys (for `feature_bundle` / `company_feature_overrides`, Module 7 §3.2)
+## 9. Enumerated Module Keys (for `feature_bundle` / `company_feature_overrides`)
 
 ```
-attendance_tracking
-leave_management
-timesheet
+hr
+expense
+finance
+timesheets
 dcr
-expense_reimbursement
-accounting_vendor_po
-accounting_customer_invoice
-gst_support
-bank_statement_import
-subteam_second_level
 ```
 
 ---
@@ -365,20 +387,43 @@ subteam_second_level
 ## 10. Action Toggle Keys (for `permission_templates.toggles` / `employees.permission_overrides`)
 
 ```
-submit_timesheet        (mutually exclusive with submit_dcr)
-submit_dcr
 mark_attendance
 apply_leave
+approve_leave
 raise_expense
-manage_vendors           -- isFinance only
-create_po                -- isFinance only
-manage_customers         -- isFinance only
-create_so                -- isFinance only
-generate_invoice         -- isFinance only
-record_other_income      -- isFinance only
-approve_pay_expenses     -- isFinance only
-hr_screens: []           -- isHR only, array of: holiday_calendar, leave_type_config, employee_onboarding, department_management
+approve_expenses
+pay_expenses
+operations_vendors
+operations_customers
+operations_purchase_orders
+operations_purchase_invoices
+operations_sales_orders
+operations_sales_invoices
+sales_quotations
+submit_dcr
+finance_make_payments
+finance_receive_payments
+finance_salary
+finance_adhoc_entries
+finance_bank_import
+finance_expense_claims
+finance_journal_entries
+edit_transactions
+record_other_income
+view_finance_journal_report
+view_finance_transaction_report
+view_finance_balance_sheet
+view_finance_invoice_report
+view_hierarchy_reports
+view_timesheet_reports
+view_dcr_reports
+submit_timesheet
+support_access
+hr_screens: []
 ```
+
+The canonical list is maintained in `src/lib/permissions.ts`. The old broad
+finance/capability keys are not part of the editable vocabulary.
 
 ---
 

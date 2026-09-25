@@ -21,7 +21,8 @@ An expense claim is a **header + one or more line items** — e.g., a single tri
 Since a claim can mix categories with different Approval Levels (Module 2 §9), the **whole claim is routed at the highest approval depth among its line items' categories**. Example: a claim with a Travel line (1 level) and a Client Entertainment line (2 levels) routes as a 2-level approval for the entire claim — there's no partial/split approval by line item.
 
 ### 1.3 Visibility
-- Only shown to employees whose Permission Template has "Raise Expense for Reimbursement" enabled (Module 2 §6)
+- Available only when the company has the Expense module and the effective
+  Permission Template grants `raise_expense`.
 
 ---
 
@@ -32,6 +33,9 @@ Since a claim can mix categories with different Approval Levels (Module 2 §9), 
 - Depth 2 → direct Manager, then Manager's Manager
 - Both levels always resolved live from the employee's Reporting Manager chain (same engine as main spec §7)
 - Approval is **all-or-nothing for the whole claim** — an approver sees every line item together and approves/rejects the claim as a unit, not line-by-line
+- A CEO/root employee's own expense claim is auto-approved. Other claims still
+  follow the configured depth and require an active Manager/Director with
+  `approve_expenses`.
 
 ### 2.1 Rejection & Resubmission
 - At **any** approval level, the approver can Reject — a comment is **mandatory** explaining why
@@ -45,6 +49,8 @@ Since a claim can mix categories with different Approval Levels (Module 2 §9), 
 
 - Once a claim clears all required approval levels → status → `Ready for Payment`, visible on the relevant **Finance Executive's** queue (resolved by the employee's department if Finance is dept-scoped, or any company-wide Finance Executive, per main spec §2)
 - Finance Executive marks the **entire claim** Paid in one action, capturing: Payment Mode (Cash / Cheque / Bank Transfer) + reference field (Cheque Number, or Bank Transaction/UTR Reference Number) — a single payment mode/reference covers the full claim total
+- Marking a claim paid requires an active Finance capability, the Finance module,
+  and the `pay_expenses` permission.
 - On marking Paid → status → `Paid`, and **each line item is posted individually into Accounting under its own category's Expense ledger head** (`isAccountable = true`, not editable for employee-raised reimbursements — main spec §11). A Travel line posts to the Travel ledger head, a Food line to the Food ledger head, etc., even though payment was made once.
 - **No partial payment and no partial rejection** — a claim is paid in full or not at all
 

@@ -18,8 +18,8 @@ export default function NewEmployeePage() {
   const [form, setForm] = useState({
     name: "", email: "", employee_type: "permanent", phone: "", dob: "", gender: "", date_of_joining: "",
     department_id: "", title_id: "", reporting_manager_id: "", is_root: false,
-    is_manager: false, is_director: false, is_finance: false, finance_scope: "department",
-    is_hr: false, emergency_contact_name: "", emergency_contact_phone: "",
+    hierarchy_role: "employee", is_finance: false, finance_scope: "department",
+    is_hr: false, is_software_engineer: false, is_sales: false, is_operations: false, is_support: false, emergency_contact_name: "", emergency_contact_phone: "",
     bank_account_no: "", bank_ifsc: "", bank_name: "", payable_salary: ""
   });
 
@@ -44,6 +44,7 @@ export default function NewEmployeePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...form,
+        hierarchy_role: form.is_root ? "ceo" : form.hierarchy_role,
         department_id: form.department_id || null,
         title_id: form.title_id || null,
         reporting_manager_id: form.is_root ? null : form.reporting_manager_id || null,
@@ -135,12 +136,21 @@ export default function NewEmployeePage() {
         </div>
 
         <div className="rounded-xl border border-ink-100 p-4">
-          <p className="mb-3 text-sm font-semibold text-ink-800">Special Flags</p>
+          <p className="mb-3 text-sm font-semibold text-ink-800">Hierarchy role and capabilities</p>
           <div className="grid grid-cols-2 gap-2 text-sm text-ink-700 sm:grid-cols-4">
-            <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_manager} onChange={(e) => update("is_manager", e.target.checked)} /> Manager</label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_director} onChange={(e) => update("is_director", e.target.checked)} /> Director</label>
+            <label className="label col-span-2 sm:col-span-4">Hierarchy role</label>
+            <select className="input col-span-2 sm:col-span-4" value={form.is_root ? "ceo" : form.hierarchy_role} disabled={form.is_root} onChange={(e) => update("hierarchy_role", e.target.value)}>
+              <option value="employee">Employee</option>
+              <option value="manager">Manager</option>
+              <option value="director">Director</option>
+              <option value="ceo">CEO</option>
+            </select>
             <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_finance} onChange={(e) => update("is_finance", e.target.checked)} /> Finance</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_hr} onChange={(e) => update("is_hr", e.target.checked)} /> HR</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_software_engineer} onChange={(e) => update("is_software_engineer", e.target.checked)} /> Software Engineer</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_sales} onChange={(e) => update("is_sales", e.target.checked)} /> Sales</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_operations} onChange={(e) => update("is_operations", e.target.checked)} /> Operations</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={form.is_support} onChange={(e) => update("is_support", e.target.checked)} /> Support</label>
           </div>
           {form.is_finance && (
             <div className="mt-3">

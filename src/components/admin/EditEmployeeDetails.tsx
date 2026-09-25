@@ -5,7 +5,7 @@ import { useState } from "react";
 type Option = { id: string; name: string };
 
 export function EditEmployeeDetails({ employee, departments, titles, managers }: {
-  employee: { id: string; phone: string | null; date_of_joining: string | null; employee_type: string | null; department_id: string | null; title_id: string | null; reporting_manager_id: string | null; status: string };
+  employee: { id: string; phone: string | null; date_of_joining: string | null; employee_type: string | null; department_id: string | null; title_id: string | null; reporting_manager_id: string | null; status: string; hierarchy_role?: string | null; is_manager: boolean; is_director: boolean; is_finance: boolean; finance_scope: string | null; is_hr: boolean; is_software_engineer: boolean; is_sales: boolean; is_operations?: boolean; is_support?: boolean };
   departments: Option[];
   titles: Option[];
   managers: Option[];
@@ -18,6 +18,14 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
     title_id: employee.title_id ?? "",
     reporting_manager_id: employee.reporting_manager_id ?? "",
     status: employee.status
+    ,hierarchy_role: employee.hierarchy_role ?? (employee.reporting_manager_id ? (employee.is_director ? "director" : employee.is_manager ? "manager" : "employee") : "ceo")
+    ,is_finance: employee.is_finance
+    ,finance_scope: employee.finance_scope ?? "department"
+    ,is_hr: employee.is_hr
+    ,is_software_engineer: employee.is_software_engineer
+    ,is_sales: employee.is_sales
+    ,is_operations: employee.is_operations ?? false
+    ,is_support: employee.is_support ?? false
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -37,6 +45,16 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
         department_id: form.department_id || null,
         title_id: form.title_id || null,
         reporting_manager_id: form.reporting_manager_id || null
+        ,hierarchy_role: form.hierarchy_role
+        ,is_manager: form.hierarchy_role === "manager" || form.hierarchy_role === "director"
+        ,is_director: form.hierarchy_role === "director"
+        ,is_finance: form.is_finance
+        ,finance_scope: form.is_finance ? form.finance_scope : null
+        ,is_hr: form.is_hr
+        ,is_software_engineer: form.is_software_engineer
+        ,is_sales: form.is_sales
+        ,is_operations: form.is_operations
+        ,is_support: form.is_support
       })
     });
     const result = await response.json();
@@ -51,6 +69,23 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
   return (
     <form onSubmit={save} className="card mt-6 space-y-4">
       <h2 className="font-semibold text-ink-900">Editable Details</h2>
+      <div>
+        <p className="label">Hierarchy role and capability flags</p>
+        <div className="grid gap-2 sm:grid-cols-2 text-sm text-ink-700">
+          <select className="input sm:col-span-2" value={form.hierarchy_role} onChange={(e) => setForm({ ...form, hierarchy_role: e.target.value })}>
+            <option value="employee">Employee</option>
+            <option value="manager">Manager</option>
+            <option value="director">Director</option>
+            <option value="ceo">CEO</option>
+          </select>
+          <label><input type="checkbox" checked={form.is_finance} onChange={(e) => setForm({ ...form, is_finance: e.target.checked })} /> Finance</label>
+          <label><input type="checkbox" checked={form.is_hr} onChange={(e) => setForm({ ...form, is_hr: e.target.checked })} /> HR</label>
+          <label><input type="checkbox" checked={form.is_software_engineer} onChange={(e) => setForm({ ...form, is_software_engineer: e.target.checked })} /> Software Engineer</label>
+          <label><input type="checkbox" checked={form.is_sales} onChange={(e) => setForm({ ...form, is_sales: e.target.checked })} /> Sales</label>
+          <label><input type="checkbox" checked={form.is_operations} onChange={(e) => setForm({ ...form, is_operations: e.target.checked })} /> Operations</label>
+          <label><input type="checkbox" checked={form.is_support} onChange={(e) => setForm({ ...form, is_support: e.target.checked })} /> Support</label>
+        </div>
+      </div>
       <div>
         <label className="label" htmlFor="employee-phone">Phone</label>
         <input id="employee-phone" className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />

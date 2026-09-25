@@ -8,7 +8,10 @@
 Despite the name "Weekly," the actual cadence is **monthly submission** with entries logged as-you-go — kept as-is per your description, just flagging the naming for clarity.
 
 ### 1.1 Visibility
-- Only shown to employees whose **Permission Template** (linked to their Title, or overridden individually — Module 2 §6) has the "Submit Timesheet" action enabled. Mutually exclusive with "Submit DCR."
+- Available only when the company has the Timesheets module, the employee has
+  the `is_software_engineer` capability, and the effective Permission Template
+  grants `submit_timesheet`. It is independent of DCR; a person may have both
+  capabilities if the company chooses.
 
 ### 1.2 Entry Fields (per row)
 - Date
@@ -34,7 +37,10 @@ Despite the name "Weekly," the actual cadence is **monthly submission** with ent
 ## 2. DCR — Daily Call Report (Sales)
 
 ### 2.1 Visibility
-- Only shown to employees whose Permission Template has "Submit DCR" enabled — mutually exclusive with "Submit Timesheet." DCR **is** the sales employee's timesheet; there's no separate hours entry.
+- Available only when the company has the DCR module, the employee has the
+  `is_sales` capability, and the effective Permission Template grants
+  `submit_dcr`. DCR is the sales employee's activity log; there is no separate
+  hours entry.
 
 ### 2.2 Data Model (proposed — please confirm)
 Rather than one throwaway row per day, a DCR entry is modeled as a **lead/customer record that persists and accumulates history** across multiple interactions over time:
@@ -62,6 +68,9 @@ Rather than one throwaway row per day, a DCR entry is modeled as a **lead/custom
 - **Daily View** — all interactions logged on a specific date, across all the salesperson's leads
 - **Date Range View** — all interactions across a chosen date range
 - Visible to: the **individual** (their own leads/interactions) and their **Manager** (their team's leads/interactions) — standard hierarchy-based visibility
+
+The `view_dcr_reports` permission is separate from `submit_dcr`; submitting DCR
+does not automatically grant report visibility.
 
 ---
 

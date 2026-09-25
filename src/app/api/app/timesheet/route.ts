@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { effectiveToggles } from "@/lib/permissions";
+import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
 
 const EntrySchema = z.object({
   id: z.string().uuid().optional(),
@@ -49,7 +49,7 @@ export async function GET() {
   const supabase = createClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, permission_template_id, permission_overrides, permission_templates(toggles), reporting_manager_id")
+    .select("id, company_id, is_software_engineer, permission_template_id, permission_overrides, permission_templates(toggles), reporting_manager_id")
     .eq("user_id", guard.user.id)
     .single();
 
@@ -59,7 +59,9 @@ export async function GET() {
     ? (employee as any).permission_templates[0]
     : (employee as any)?.permission_templates;
   const toggles = effectiveToggles(template?.toggles, (employee as any)?.permission_overrides);
-  if (!toggles.submit_timesheet) {
+  const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
+  const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
+  if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "timesheets") || !employee.is_software_engineer || !toggles.submit_timesheet) {
     return NextResponse.json({ error: "Timesheet access is not enabled for this employee" }, { status: 403 });
   }
 
@@ -100,7 +102,7 @@ export async function POST(request: Request) {
 
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, permission_template_id, permission_overrides, permission_templates(toggles)")
+    .select("id, company_id, is_software_engineer, permission_template_id, permission_overrides, permission_templates(toggles)")
     .eq("user_id", guard.user.id)
     .single();
 
@@ -110,7 +112,9 @@ export async function POST(request: Request) {
     ? (employee as any).permission_templates[0]
     : (employee as any)?.permission_templates;
   const toggles = effectiveToggles(template?.toggles, (employee as any)?.permission_overrides);
-  if (!toggles.submit_timesheet) {
+  const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
+  const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
+  if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "timesheets") || !employee.is_software_engineer || !toggles.submit_timesheet) {
     return NextResponse.json({ error: "Timesheet access is not enabled for this employee" }, { status: 403 });
   }
 

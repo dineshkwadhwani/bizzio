@@ -21,7 +21,7 @@ export default async function CompaniesListPage({
   const supabase = createClient();
   let query = supabase
     .from("companies")
-    .select("id, name, contact_person_name, contact_email, status, submitted_at, subscription_plans(name)")
+    .select("id, name, contact_person_name, contact_email, status, submitted_at, subscription_plans(name, feature_bundle)")
     .order("submitted_at", { ascending: false });
 
   if (searchParams.status) query = query.eq("status", searchParams.status);
@@ -59,6 +59,7 @@ export default async function CompaniesListPage({
               <th className="px-4 py-3">Company</th>
               <th className="px-4 py-3">Contact</th>
               <th className="px-4 py-3">Plan</th>
+              <th className="px-4 py-3">Modules</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Submitted</th>
             </tr>
@@ -78,13 +79,20 @@ export default async function CompaniesListPage({
                 </td>
                 <td className="px-4 py-3 text-ink-600">{c.subscription_plans?.name}</td>
                 <td className="px-4 py-3">
+                  <div className="flex max-w-sm flex-wrap gap-1">
+                    {[["hr", "HR"], ["expense", "Expense"], ["finance", "Finance"], ["timesheets", "Timesheets"], ["dcr", "DCR"]].map(([key, label]) => (
+                      <span key={key} className={`badge ${c.subscription_plans?.feature_bundle?.[key] === true ? "bg-pastel-mint text-ink-700" : "bg-ink-100 text-ink-400"}`}>{label}</span>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-4 py-3">
                   <span className={`badge ${STATUS_STYLES[c.status]}`}>{c.status.replace("_", " ")}</span>
                 </td>
                 <td className="px-4 py-3 text-ink-500">{formatDate(c.submitted_at)}</td>
               </tr>
             ))}
             {!companies?.length && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-ink-400">No companies found.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-ink-400">No companies found.</td></tr>
             )}
           </tbody>
         </table>

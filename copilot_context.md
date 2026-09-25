@@ -1,6 +1,6 @@
 # Bizzio Online — Current Implementation Context
 
-Last updated: 2026-09-21
+Last updated: 2026-09-25
 
 ## Product/accounting model
 
@@ -27,6 +27,26 @@ Dr Customer Receivable       Gross invoice amount
 The journal uses `invoice_date`, not the database creation date or payment date. Existing invoice-issued journal lines are synchronized to the invoice date when the invoice date changes.
 
 Draft invoices can be edited, including line items, invoice date, and pending advance application. Issued invoices cannot have line items changed through the draft editor.
+
+Sales invoices support multiple private supporting documents. Invoice details
+display signed links to those documents, and receipt creation can carry a
+payment/reference document.
+
+Purchase invoices are a separate vendor-bill workflow. They can be created
+manually or from a Purchase Order, edited from the list/detail flow, and carry
+an optional supporting document. Editing recalculates line totals, GST, payable
+total, status, and the linked purchase-invoice journal. Existing attachments
+can be replaced or deleted. The edit is blocked if the revised total is below
+payments already recorded. Purchase invoice payment documents are visible on
+the invoice detail page and in the Transaction Report.
+
+Purchase invoice posting is accrual-based:
+
+```text
+Dr Expense / Cost of Goods Sold       Base amount
+Dr Paid GST                           Input GST, where applicable
+    Cr Vendor Payable                 Gross amount
+```
 
 ## Customer advances
 
@@ -69,6 +89,12 @@ One bank transfer covering multiple invoices remains one grouped receipt journal
 
 Invoices are marked paid only after their total has been settled through advances, payments, TDS, and/or approved discounts.
 
+Make Payment supports Purchase Invoice, Purchase Order, and standalone
+payments. Purchase invoice payments can be partial and post Vendor Payable to
+Bank/Cash. Receive Payments supports invoice settlement, customer advances,
+and standalone receipts, including payment mode, reference, received date,
+TDS/discount handling, and supporting documents where applicable.
+
 ## Reports and statements
 
 The Transaction Report and account statements use ledger entry dates. Expected entries include:
@@ -81,9 +107,53 @@ The Transaction Report and account statements use ledger entry dates. Expected e
 
 Sales Income and GST Payable show one credit entry per issued invoice. Customer Receivable shows the invoice debit and later settlement credits. The bank account shows only cash received.
 
-Transaction Report supports editing receipt, customer advance, and customer advance application metadata such as date, reference, description, notes, and attachments. Core accounting amounts/accounts are protected for those posted transaction types.
+The Transaction Report groups related ledger rows by business transaction event,
+so accrual and settlement journals are not double-counted as separate business
+transactions. It supports date/source/search filters, debit and credit account
+columns, separate total debits and total credits with a difference indicator,
+signed attachment links, and edit links for supported source types. Supported
+metadata edits include date, reference, description, notes, and attachments;
+core accounting amounts/accounts remain protected for source types whose
+journals must remain balanced. Purchase invoice, payment, sales invoice, and
+expense documents are included where available.
 
 Account statements support print/save-PDF. Print styling hides application navigation and constrains long reference columns to prevent unnecessary horizontal overflow.
+
+## Role-based access control
+
+RBAC is implemented as three independent checks:
+
+1. The company's assigned, active subscription plan enables the product modules
+   (`hr`, `expense`, `finance`, `timesheets`, and `dcr`).
+2. Employee capability flags identify functional membership: HR, Finance,
+   Operations, Sales, Support, and Software Engineer.
+3. Permission templates plus per-employee overrides grant individual actions
+   and reports.
+
+The hierarchy is separate from capabilities. `employees.hierarchy_role` is the
+source of truth and is one of `employee`, `manager`, `director`, or `ceo`.
+Directors participate as managers for approvals. There is one active CEO/root
+employee per company; the CEO's own leave and expense requests are auto-approved.
+
+Canonical permission groups are HR & workflows, Operations, Sales, Finance,
+Reports, Time, and Support. Reports are granted individually rather than by a
+single broad report switch. Removed legacy permission keys are no longer a
+second source of truth.
+
+The application enforces authorization in API/page guards as well as navigation:
+navigation only hides links and is not a security boundary. Employee status,
+company status, active subscription plan, module entitlement, capability, and
+specific permission are checked as applicable. Tenant isolation is enforced by
+Supabase RLS. Approval-step tenancy is materialized through `approval_steps.company_id`.
+
+The package catalog currently contains Basic (HR), Advanced (HR + Expense),
+Pro (HR + Expense + Finance + Timesheets + DCR), and ProMax (currently the same
+bundle as Pro). The current company is assigned ProMax.
+
+RBAC changes were deliberately kept separate from accounting data. The P0-P3
+RBAC migrations add/normalize access metadata, hierarchy rules, RLS policies,
+audit events, and indexes; they do not modify ledger, invoice, payment,
+bank-import, or other financial values.
 
 ## Database migrations
 
@@ -93,6 +163,16 @@ Relevant migrations:
 - `20260920_customer_advance_applications.sql` — invoice-linked advance applications.
 - `20260921_invoice_dates.sql` — adds and backfills `invoices.invoice_date`.
 - `20260922_repair_invoice_accrual_postings.sql` — corrects known HMH invoice dates, backfills missing invoice-issued journals, and synchronizes existing invoice journal dates without changing cash receipt dates.
+- `20260923_transaction_events.sql` — groups related journals into business transaction events for reporting and backfills existing ledger rows.
+- `20260919_invoice_attachments.sql` — supports multiple private supporting documents on sales invoices.
+- `20260919_invoice_payment_posting.sql` and `20260919_receipt_tax_breakdown.sql` — support invoice settlement posting, TDS, discounts, and receipt tax allocation.
+- `20260924_purchase_invoices.sql` — adds vendor purchase invoices, line items, partial payments, purchase-invoice journal sources, and RLS.
+- `20260924_purchase_invoice_payment_attachments.sql` — adds supporting-document metadata to purchase-invoice payments.
+- `20260924_access_control_model.sql` — adds capability flags, canonical package catalog, granular permission keys, and hierarchy-aware approval grants.
+- `20260924_hierarchy_roles.sql` — establishes the four-level hierarchy, CEO/root constraints, and CEO auto-approval behavior.
+- `20260924_operations_support_capabilities.sql` — separates Operations, Sales, Finance, Time, Support, and Reports permission groups and migrates existing grants.
+- `20260924_rbac_hardening.sql` — hardens report permissions, approval-step tenancy, attachment/payment RLS, and cross-company authorization paths.
+- `20260925_rbac_p3_cleanup.sql` — synchronizes hierarchy display flags, removes remaining legacy permission keys, and adds RBAC query indexes.
 
 Known HMH repair data:
 
@@ -106,12 +186,20 @@ The first two dates were inferred from their “8th June” invoice titles and s
 ## Current implementation files
 
 - Invoice APIs: `src/app/api/app/finance/invoices/route.ts` and `src/app/api/app/finance/invoices/[id]/route.ts`.
+- Purchase Invoice APIs: `src/app/api/app/finance/purchase-invoices/`.
 - Payment APIs: `src/app/api/app/finance/receive-payments/route.ts` and `src/app/api/app/finance/receipts/route.ts`.
+- Make Payment APIs: `src/app/api/app/finance/purchase-invoices/[id]/payment/route.ts` and Purchase Order payment routes.
 - Invoice UI: `src/app/app/finance/invoices/`.
+- Purchase Invoice UI: `src/app/app/finance/purchase-invoices/`.
+- Make Payment UI: `src/app/app/finance/payments/`.
 - Receive Payments UI: `src/app/app/finance/receive-payments/page.tsx`.
 - Ledger helper: `src/lib/finance-ledger.ts`.
 - Transaction Report: `src/app/app/finance/reports/transactions/`.
 - Account Statement: `src/app/app/finance/reports/account/[id]/page.tsx`.
+- Permission catalog: `src/lib/permissions.ts`.
+- Authorization guards: `src/lib/auth-guard.ts`.
+- Shared navigation and module visibility: `src/app/app/layout.tsx` and `src/components/layout/DashboardShell.tsx`.
+- RBAC administration: `src/app/admin/permission-templates/` and employee create/edit screens.
 
 ## Authentication/sidebar identity
 
@@ -124,4 +212,5 @@ The local workspace contains this fix, but `bizzio.online` must be redeployed be
 - `npx tsc --noEmit` passes after the latest changes.
 - The lint command is not currently configured; `npm run lint` opens Next.js ESLint setup instead of running an existing configuration.
 - Invoice, advance, payment, reporting, and sidebar identity changes are implemented in the local workspace.
-- Supabase migrations must be applied to the target database, and the latest application code must be deployed before production behavior changes.
+- The RBAC P0-P3 migrations listed above have been applied to the current Supabase database.
+- The latest application code must still be deployed before production browser sessions show all behavior changes; production smoke tests should cover each package, capability, hierarchy level, report permission, approval path, and cross-company boundary.

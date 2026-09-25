@@ -40,19 +40,16 @@ Plus a **Leave Management** module (added during requirements review) and a **Ve
 | **Employee** | One company | Base role; capabilities are **attribute-driven**, not separate roles: |
 
 ### Employee special attributes (flags, not separate roles)
-- `isManager` — appears as an approver in reporting-line chains
-- `isDirector` — top of hierarchy / broader report visibility
-- `isFinance` — unlocks Finance Executive capabilities (vendor mgmt, expense payment, PO, SO, Invoice, other income); **scope is configurable per employee**: Department-scoped or Company-wide (set by Company Admin)
-- `isHR` — unlocks a configurable subset of admin-lite screens. When Company Admin flags an employee as HR, Admin then **checkbox-selects which specific screens** that HR employee can access, e.g.: Holiday Calendar management, Leave Type configuration, Employee onboarding/bulk upload, Department & Sub-team management. (Same permission model as `isFinance` scope — a flag plus a configurable capability set, not a fixed bundle.)
+- `hierarchy_role` — one of Employee, Manager, Director, or CEO; Director participates as a manager, and CEO is the single root
+- Capabilities are independent checkboxes: `isFinance` (with Department/Company scope), `isHR`, `isOperations`, `isSales`, `isSupport`, and `isSoftwareEngineer`
 
 ### Per-employee action toggles (set by Company Admin at onboarding)
 Company Admin decides, per employee, which of these actions are available to them:
-- Submit Timesheet / Submit DCR (mutually exclusive — sales vs non-sales)
+- Submit Timesheet and Submit DCR are separate permissions; capability flags determine the intended functional membership
 - Mark Attendance
 - Apply for Leave
 - Raise Expense for Reimbursement
-- (If `isFinance`) Manage Vendors, Create PO, Manage Customers, Create SO, Generate Invoice, Record Other Income, Approve/Pay Expenses
-- (If `isHR`) Admin-selected subset of: Holiday Calendar management, Leave Type configuration, Employee onboarding/bulk upload, Department & Sub-team management
+- Canonical Operations, Sales, Finance, Reports, Time, Support, and HR/workflow permissions as defined in `docs/RBAC-Operations.md`
 
 This drives what each employee sees on their dashboard — no hardcoded UI per role beyond SuperAdmin/CompanyAdmin/Employee shell.
 
@@ -80,7 +77,7 @@ No refund flow is needed anywhere in this lifecycle, since Pro payment is only e
 - **Departments**: configurable, **max 2-level depth** — Department → optional Sub-team/Team (sub-teams are a toggle-able feature; if off, flat department list only)
 - **Approval Hierarchy Levels**: 1 or 2 (see §7 for resolution logic)
 - **Employee Management**:
-  - Add individually, or **bulk upload via Excel** (template: name, email, phone, DOB, gender, DOJ, department, sub-team, reporting manager email, isManager, isDirector, isFinance + finance scope, per-action toggles)
+  - Add individually, or **bulk upload via Excel** (template includes hierarchy role, capability flags, finance scope, HR screens, and per-action permissions)
   - On save → Resend invite email with set-password link
 - **Leave Configuration**: define leave types (name, annual quota, paid/unpaid) — fully custom per company, e.g., CL: 12 paid, SL: 8 paid, LWP: unlimited unpaid. No accrual logic in v1 — Admin sets/adjusts quota numbers directly.
 - **Holiday Calendar**: Admin maintains list of company holidays (date + name); visible to all employees; leave cannot be applied against holiday dates.
@@ -91,7 +88,7 @@ No refund flow is needed anywhere in this lifecycle, since Pro payment is only e
 
 Standard: Name, Email, Phone, DOB, Gender, Date of Joining, Department, Sub-team (optional), Reporting Manager, Employee Code (auto-generated), Profile photo, **Payable Salary** (admin-set, used only by the "Pay Salary" convenience action in §11 — not a payroll system).
 
-Special: `isManager`, `isDirector`, `isFinance` (+ finance scope: Department / Company-wide), `isHR` (+ selected screen permissions), per-action capability toggles (see §2).
+Special: `hierarchy_role`, independent capability flags, Finance scope, HR screen selection, and canonical per-action permissions (see §2).
 
 ### Employee Self-Service Profile Page
 Every employee has a **My Profile** page where they can view their record and **self-edit**: address, profile photo, phone number, and other non-sensitive personal fields (emergency contact, etc.). Admin-controlled fields (department, reporting manager, DOJ, employee code, special flags, action toggles) remain read-only to the employee and editable only by Company Admin.
@@ -154,23 +151,25 @@ Notifications fire at: submitted, approved, rejected, paid.
 
 ---
 
-## 11. Module: Accounting (Finance Executive)
+## 11. Module: Accounting (Operations, Sales & Finance)
 
 **Depth chosen: category-based ledgers per account head, dr/cr, generating Balance Sheet & P&L** (not full multi-currency double-entry complexity, but proper enough for real books).
 
 ### Sub-features
-- **Chart of account heads**: category-based (e.g., Travel Expense, Salaries, Office Supplies, Sales Income, Other Income), seeded at company activation — only **Company Admin** can add/edit heads; Finance Executive can request new ones for Admin approval
-- **Vendor Master**: created by Finance Executive (name, GSTIN, address, bank details, contact) — auto-creates a Vendor Party Account under Accounts Payable
-- **Purchase Order (PO)**: Finance Executive creates PO (free-text line items — no catalog), with company logo + GST breakup (GSTIN, CGST/SGST/IGST per line) → **Review screen** → Send to vendor via Resend email as PDF. PO does not touch the ledger — actual payment is logged separately as an Ad-hoc Expense.
-- **Customer Master**: created by Finance Executive (name, GSTIN, address, contact) — auto-creates a Customer Party Account under Accounts Receivable
-- **Quotation → Sales Order → Invoice**: Finance Executive creates a Quotation and sends it to the customer; once the customer accepts (recorded manually), it converts to a Sales Order; the Invoice is generated against the Sales Order. All three go through a Review screen with a manual Send action (email as PDF via Resend).
-- **Receipt**: created against an Invoice to record payment (Payment Mode + reference) — creating a Receipt automatically marks the Invoice Paid and posts the base amount to Sales Income and the GST portion to a GST Payable liability account
-- **Daily/Ad-hoc Expenses**: Finance Executive can log direct expenses (not employee reimbursements) straight into the ledger, with the same Payment Mode + reference fields (Cash / Cheque Number / Bank Transfer Ref); can also be imported in bulk from a bank statement (Excel upload → review/categorize → post)
+- **Chart of account heads**: category-based (e.g., Travel Expense, Salaries, Office Supplies, Sales Income, Other Income), seeded at company activation — only **Company Admin** can add/edit heads; Finance can request new ones for Admin approval
+- **Vendor Master**: created by Operations (name, GSTIN, address, bank details, contact) — auto-creates a Vendor Party Account under Accounts Payable
+- **Purchase Order (PO)**: Operations creates PO (free-text line items — no catalog), with company logo + GST breakup (GSTIN, CGST/SGST/IGST per line) → **Review screen** → Send to vendor via Resend email as PDF. PO does not touch the ledger.
+- **Purchase Invoice**: Operations records a vendor bill manually or from a PO, with line totals, GST, due date, and optional supporting document. The invoice posts the expense/input GST and vendor payable; Finance records partial or full payments against the outstanding balance.
+- **Customer Master**: created by Operations (name, GSTIN, address, contact) — auto-creates a Customer Party Account under Accounts Receivable
+- **Quotation → Sales Order → Invoice**: Sales creates Quotations; accepted Quotations become Operations Sales Orders and Sales Invoices. All go through a Review screen with a manual Send action (email as PDF via Resend). Sales invoices support multiple supporting documents and visible line totals.
+- **Receipt**: Finance records an Invoice Receipt (Payment Mode + reference, received amount, TDS/discount, and optional supporting document). The settlement posts to the ledger and updates the outstanding invoice balance/status.
+- **Make Payment / Receive Payment**: Finance can make payments against Purchase Invoices, Purchase Orders, or standalone expense accounts, and receive invoice payments, advances, or standalone receipts. Payment reference documents are supported.
+- **Daily/Ad-hoc Expenses**: Finance can log direct expenses (not employee reimbursements) straight into the ledger, with the same Payment Mode + reference fields (Cash / Cheque Number / Bank Transfer Ref); can also be imported in bulk from a bank statement (Excel upload → review/categorize → post)
 - **Other Income**: any non-sales income logged directly → posted to Income ledger
-- **Salary Paid (lightweight, not full payroll)**: each employee record carries a **Payable Salary** field (set/edited by Company Admin). On the Finance Executive's dashboard, each employee shows a **"Pay Salary"** button — clicking it records that employee's payable salary amount as a Salary expense entry in Accounting (with payment mode + reference, same as above) and marks it paid for the period. No payslips, tax computation, or statutory deductions — purely a single-click "log this salary as paid" convenience.
-- **`isAccountable` flag on manual entries**: every manually-added Expense or Income entry (ad-hoc expense, other income, salary paid) carries an `isAccountable` checkbox, **checked by default**. Finance Executive can uncheck it to mark an entry as "unaccounted." Employee-raised Expense Reimbursements and system-generated entries (from Invoice/Receipt) are always `isAccountable = true` (not user-editable) — the flag only applies to manually-entered ad-hoc income/expense/salary entries.
+- **Salary Paid (lightweight, not full payroll)**: each employee record carries a **Payable Salary** field (set/edited by Company Admin). On the Finance dashboard, each employee shows a **"Pay Salary"** button — clicking it records that employee's payable salary amount as a Salary expense entry in Accounting (with payment mode + reference, same as above) and marks it paid for the period. No payslips, tax computation, or statutory deductions — purely a single-click "log this salary as paid" convenience.
+- **`isAccountable` flag on manual entries**: every manually-added Expense or Income entry (ad-hoc expense, other income, salary paid) carries an `isAccountable` checkbox, **checked by default**. Finance can uncheck it to mark an entry as "unaccounted." Employee-raised Expense Reimbursements and system-generated entries (from Invoice/Receipt/Purchase Invoice) are always `isAccountable = true` (not user-editable) — the flag only applies to manually-entered ad-hoc income/expense/salary entries.
 - **GST**: full support — GSTIN fields on Company/Vendor/Customer, GST% per line item, CGST/SGST/IGST split (manually selected, defaulted to 18%), GST summary block on Quotation/PO/Invoice PDFs
-- **Reports generated**: Balance Sheet, Profit & Loss, Expense Report (by category/department), Unpaid Invoices Report, Ledger/account-head statements (including per-Vendor/Customer Party Account statements) — all exportable as **PDF and Excel**
+- **Reports generated**: Balance Sheet, Profit & Loss, Expense Report (by category/department), Unpaid Invoices Report, Ledger/account-head statements, Invoice Report, and the grouped Transaction Report. Transaction Report shows separate debit/credit totals, their difference, supporting-document links, and supported edit links. Reports are separately permissioned and use transaction-event grouping to avoid double-counting journals.
   - Every financial report accepts an **`includeUnaccounted`** parameter (default **off**): when off, entries with `isAccountable = false` are excluded from totals; when explicitly turned on, both accounted and unaccounted entries are included in the report.
 
 Full detail in Module 6.

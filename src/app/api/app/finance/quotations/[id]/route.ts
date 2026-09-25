@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireSales } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
+import { removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -14,7 +15,9 @@ const LineItemSchema = z.object({
 const UpdateSchema = z.object({
   customer_id: z.string().min(1).optional(),
   status: z.enum(["draft", "reviewed", "sent", "accepted", "rejected", "expired"]).optional(),
-  lines: z.array(LineItemSchema).optional()
+  lines: z.array(LineItemSchema).optional(),
+  attachment_path: z.string().trim().nullable().optional(),
+  attachment_name: z.string().trim().nullable().optional()
 });
 
 function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: number; gst_type: "cgst_sgst" | "igst" }) {
@@ -39,7 +42,7 @@ function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: nu
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireSales("sales_quotations");
     const supabase = createClient();
     const { data: quotation, error: quotationError } = await supabase
       .from("quotations")
@@ -61,7 +64,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
-    return NextResponse.json({ quotation, lineItems: lineItems ?? [] });
+    const attachmentUrl = quotation.attachment_path
+      ? (await supabase.storage.from("transaction-documents").createSignedUrl(quotation.attachment_path, 3600)).data?.signedUrl ?? null
+      : null;
+    return NextResponse.json({ quotation: { ...quotation, attachment_url: attachmentUrl }, lineItems: lineItems ?? [] });
   } catch (error) {
     return error as Response;
   }
@@ -69,7 +75,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireSales("sales_quotations");
     const parsed = UpdateSchema.safeParse(await request.json());
 
     if (!parsed.success) {
@@ -78,6 +84,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const supabase = createClient();
     const updates: Record<string, any> = {};
+    const { data: previousQuotation } = await supabase
+      .from("quotations")
+      .select("attachment_path")
+      .eq("id", params.id)
+      .eq("company_id", guard.employee.company_id)
+      .maybeSingle();
 
     if (parsed.data.customer_id) {
       const { data: customer, error: customerError } = await supabase
@@ -102,6 +114,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         updates.decided_at = new Date().toISOString();
       }
     }
+    if (parsed.data.attachment_path !== undefined) updates.attachment_path = parsed.data.attachment_path?.trim() || null;
+    if (parsed.data.attachment_name !== undefined) updates.attachment_name = parsed.data.attachment_name?.trim() || null;
 
     if (Object.keys(updates).length) {
       const { data: quotation, error: quotationError } = await supabase
@@ -115,6 +129,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       if (quotationError) {
         if (quotationError.code === "PGRST116") return NextResponse.json({ error: "Quotation not found" }, { status: 404 });
         return NextResponse.json({ error: quotationError.message }, { status: 500 });
+      }
+
+      if (previousQuotation?.attachment_path && previousQuotation.attachment_path !== quotation.attachment_path) {
+        await removeUnreferencedAttachments(supabase, guard.employee.company_id, [{ path: previousQuotation.attachment_path, bucket: "transaction-documents" }]);
       }
 
       if (parsed.data.lines && parsed.data.lines.length) {
@@ -160,7 +178,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireSales("sales_quotations");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("quotations")

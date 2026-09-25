@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireSales } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const LineItemSchema = z.object({
@@ -15,7 +15,9 @@ const QuotationSchema = z.object({
   title: z.string().trim().min(1),
   customer_id: z.string().min(1),
   status: z.enum(["draft", "reviewed", "sent", "accepted", "rejected", "expired"]).optional(),
-  lines: z.array(LineItemSchema).min(1)
+  lines: z.array(LineItemSchema).min(1),
+  attachment_path: z.string().trim().nullable().optional(),
+  attachment_name: z.string().trim().nullable().optional()
 });
 
 function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: number; gst_type: "cgst_sgst" | "igst" }) {
@@ -76,7 +78,7 @@ async function getNextQuotationNumber(supabase: ReturnType<typeof createClient>,
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireSales("sales_quotations");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("quotations")
@@ -93,7 +95,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireSales("sales_quotations");
     const body = await request.json();
     const parsed = QuotationSchema.safeParse(body);
 
@@ -127,6 +129,8 @@ export async function POST(request: Request) {
         created_by: guard.employee.id,
         sent_at: status === "sent" ? new Date().toISOString() : null,
         decided_at: ["accepted", "rejected", "expired"].includes(status) ? new Date().toISOString() : null
+        ,attachment_path: parsed.data.attachment_path?.trim() || null,
+        attachment_name: parsed.data.attachment_name?.trim() || null
       })
       .select("*")
       .single();

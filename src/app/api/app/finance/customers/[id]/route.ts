@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const CustomerUpdateSchema = z.object({
@@ -19,7 +19,7 @@ const CustomerUpdateSchema = z.object({
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_customers");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("customers")
@@ -41,7 +41,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_customers");
     const parsed = CustomerUpdateSchema.safeParse(await request.json());
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -77,7 +77,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_customers");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("customers")

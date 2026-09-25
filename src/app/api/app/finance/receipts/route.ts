@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, ensureInvoiceIssuedJournal, findPaymentAccount } from "@/lib/finance-ledger";
+import { ensureInvoiceIssuedJournal, findPaymentAccount } from "@/lib/finance-ledger";
 
 const ReceiptSchema = z.object({
   invoice_id: z.string().min(1),
@@ -19,7 +19,7 @@ const ReceiptSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_receive_payments");
     const parsed = ReceiptSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
@@ -75,12 +75,41 @@ export async function POST(request: Request) {
       if (!discount) return NextResponse.json({ error: "Sales Discounts account is missing." }, { status: 400 });
       lines.push({ accountHeadId: discount.id, amount: parsed.data.discount_amount, entryType: "debit", label: "Sales Discounts" });
     }
-    const posting = await createBalancedJournal(supabase, { companyId, lines, paymentMode: parsed.data.payment_mode, referenceNumber: parsed.data.reference_number?.trim() || null, description: `Payment for invoice ${invoice.invoice_number}`, entryDate: new Date().toISOString().slice(0, 10), createdBy: guard.employee.id, sourceType: "invoice_receipt", sourceId: invoice.id, attachmentPath, attachmentName });
-    if (posting.error || !posting.data?.length) return NextResponse.json({ error: posting.error?.message || "Could not post the receipt." }, { status: 500 });
-    const { data: receipt, error: receiptError } = await supabase.from("receipts").insert({ invoice_id: invoice.id, company_id: companyId, receipt_number: receiptNumber, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number?.trim() || null, amount: balanceDue, amount_received: parsed.data.amount_received, taxable_amount: Number((invoice.base_amount * balanceDue / invoice.total_amount).toFixed(2)), gst_amount: Number((invoice.gst_amount * balanceDue / invoice.total_amount).toFixed(2)), tds_amount: parsed.data.tds_amount, discount_amount: parsed.data.discount_amount, delta_treatment: deltaTreatment, attachment_path: attachmentPath, attachment_name: attachmentName, received_by: guard.employee.id, received_at: new Date().toISOString(), journal_id: posting.journalId, post_to_ledger: true }).select().single();
-    if (receiptError) return NextResponse.json({ error: receiptError.message }, { status: 500 });
-    const { data: updatedInvoice } = await supabase.from("invoices").update({ status: "paid" }).eq("id", invoice.id).eq("company_id", companyId).select().single();
-    return NextResponse.json({ receipt, invoice: updatedInvoice, journal_id: posting.journalId }, { status: 201 });
+    const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+      p_operation: "invoice_receipt",
+      p_company_id: companyId,
+      p_actor_employee_id: guard.employee.id,
+      p_event_type: "invoice_receipt",
+      p_event_date: new Date().toISOString().slice(0, 10),
+      p_description: `Payment for invoice ${invoice.invoice_number}`,
+      p_reference_number: parsed.data.reference_number?.trim() || null,
+      p_payment_mode: parsed.data.payment_mode,
+      p_source_id: invoice.id,
+      p_payload: {
+        received_at: new Date().toISOString(),
+        payer_name: invoice.customer?.name || null,
+        payer_account_id: invoice.customer?.party_account_head_id || null,
+        allocations: [{
+          invoice_id: invoice.id,
+          receipt_number: receiptNumber,
+          amount: balanceDue,
+          amount_received: parsed.data.amount_received,
+          taxable_amount: Number((invoice.base_amount * balanceDue / invoice.total_amount).toFixed(2)),
+          gst_amount: Number((invoice.gst_amount * balanceDue / invoice.total_amount).toFixed(2)),
+          tds_amount: parsed.data.tds_amount,
+          discount_amount: parsed.data.discount_amount
+        }]
+      },
+      p_postings: [{ source_type: "invoice_receipt", source_id: invoice.id, lines }],
+      p_attachment_path: attachmentPath,
+      p_attachment_name: attachmentName
+    });
+    if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message || "Could not post the receipt." }, { status: 500 });
+    const [{ data: receipt }, { data: updatedInvoice }] = await Promise.all([
+      supabase.from("receipts").select().eq("invoice_id", invoice.id).eq("company_id", companyId).single(),
+      supabase.from("invoices").select().eq("id", invoice.id).eq("company_id", companyId).single()
+    ]);
+    return NextResponse.json({ receipt, invoice: updatedInvoice, journal_id: atomicResult.journal_id }, { status: 201 });
   } catch (error) {
     return error as Response;
   }

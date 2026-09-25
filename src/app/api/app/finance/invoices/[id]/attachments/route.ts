@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const supabase = createClient();
     const { data, error } = await supabase.from("invoice_attachments").select("id, storage_path, file_name, created_at").eq("invoice_id", params.id).eq("company_id", guard.employee.company_id).order("created_at", { ascending: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -18,14 +18,38 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const body = await request.json();
     if (typeof body.storage_path !== "string" || typeof body.file_name !== "string") return NextResponse.json({ error: "A storage path and file name are required." }, { status: 400 });
+    if (!body.storage_path.startsWith(`${guard.employee.company_id}/`)) return NextResponse.json({ error: "The attachment must belong to this company." }, { status: 400 });
     const supabase = createClient();
     const { data: invoice } = await supabase.from("invoices").select("id").eq("id", params.id).eq("company_id", guard.employee.company_id).single();
     if (!invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
     const { data, error } = await supabase.from("invoice_attachments").insert({ invoice_id: params.id, company_id: guard.employee.company_id, storage_path: body.storage_path, file_name: body.file_name, created_by: guard.employee.id }).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ attachment: data }, { status: 201 });
+  } catch (error) { return error as Response; }
+}
+
+export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+  try {
+    const guard = await requireOperations("operations_sales_invoices");
+    const body = await request.json().catch(() => ({}));
+    const attachmentId = typeof body.id === "string" ? body.id : "";
+    if (!attachmentId) return NextResponse.json({ error: "An attachment is required." }, { status: 400 });
+    const supabase = createClient();
+    const { data: attachment, error: attachmentError } = await supabase
+      .from("invoice_attachments")
+      .select("id, storage_path")
+      .eq("id", attachmentId)
+      .eq("invoice_id", params.id)
+      .eq("company_id", guard.employee.company_id)
+      .single();
+    if (attachmentError || !attachment) return NextResponse.json({ error: "Attachment not found." }, { status: 404 });
+    const { error } = await supabase.from("invoice_attachments").delete().eq("id", attachment.id).eq("company_id", guard.employee.company_id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const { count } = await supabase.from("invoice_attachments").select("id", { count: "exact", head: true }).eq("company_id", guard.employee.company_id).eq("storage_path", attachment.storage_path);
+    if (!count) await supabase.storage.from("transaction-documents").remove([attachment.storage_path]);
+    return NextResponse.json({ success: true });
   } catch (error) { return error as Response; }
 }

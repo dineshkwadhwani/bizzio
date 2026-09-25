@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
+import { findPaymentAccount } from "@/lib/finance-ledger";
 
 const BulkAssignSchema = z.object({
   row_ids: z.array(z.string()).min(1),
@@ -25,9 +25,8 @@ const ReconcileRowsSchema = z.object({ row_ids: z.array(z.string()).min(1) });
 
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_bank_import");
     const supabase = createClient();
-
     const { data: importRecord, error: importError } = await supabase
       .from("bank_statement_imports")
       .select("*")
@@ -48,7 +47,10 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       .order("created_at", { ascending: false });
 
     if (rowsError) return NextResponse.json({ error: rowsError.message }, { status: 500 });
-    return NextResponse.json({ importRecord, rows: rows ?? [] });
+    const attachmentUrl = importRecord.attachment_path
+      ? (await supabase.storage.from("transaction-documents").createSignedUrl(importRecord.attachment_path, 3600)).data?.signedUrl ?? null
+      : null;
+    return NextResponse.json({ importRecord: { ...importRecord, attachment_url: attachmentUrl }, rows: rows ?? [] });
   } catch (error) {
     return error as Response;
   }
@@ -56,7 +58,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
 export async function DELETE(_: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_bank_import");
     const supabase = createClient();
     const { data: rows, error: rowsError } = await supabase
       .from("bank_statement_rows")
@@ -74,7 +76,7 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_bank_import");
     const body = await request.json();
     const parsed = BulkAssignSchema.safeParse(body);
 
@@ -102,11 +104,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_bank_import");
     const body = await request.json();
     const action = body.action;
     const supabase = createClient();
-
     if (action === "reconcile") {
       const parsed = ReconcileRowsSchema.safeParse(body);
       if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
@@ -236,46 +237,25 @@ export async function POST(request: Request, { params }: { params: { id: string 
               { accountHeadId: bankAccount.id, amount, entryType: "debit" as const, label: "Bank" },
               { accountHeadId, amount, entryType: "credit" as const, label: "Income/category" }
             ];
-        const { data: ledgerEntries, error: ledgerError, journalId } = await createBalancedJournal(writeClient, {
-          companyId: guard.employee.company_id,
-          lines,
-          paymentMode: "bank_transfer",
-          referenceNumber: row.ref_no || null,
-          description: [row.particulars, row.notes].filter(Boolean).join(" — ") || `Bank statement import row ${row.id}`,
-          notes: row.notes || null,
-          entryDate: row.row_date || new Date().toISOString().slice(0, 10),
-          createdBy: guard.employee.id,
-          sourceType: "bank_import_row",
-          sourceId: row.id
+        const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+          p_operation: "bank_import_row",
+          p_company_id: guard.employee.company_id,
+          p_actor_employee_id: guard.employee.id,
+          p_event_type: "bank_import_row",
+          p_event_date: row.row_date || new Date().toISOString().slice(0, 10),
+          p_description: [row.particulars, row.notes].filter(Boolean).join(" — ") || `Bank statement import row ${row.id}`,
+          p_reference_number: row.ref_no || null,
+          p_payment_mode: "bank_transfer",
+          p_source_id: row.id,
+          p_payload: { account_head_id: accountHeadId, notes: row.notes || (isExpense ? "Posted as expense from bank import." : "Posted as income from bank import.") },
+          p_postings: [{ source_type: "bank_import_row", source_id: row.id, lines: lines.map((line) => ({ account_head_id: line.accountHeadId, amount: line.amount, entry_type: line.entryType, label: line.label })) }],
         });
 
-        if (ledgerError || !ledgerEntries?.length) {
-          skipped.push({ rowId: row.id, reason: ledgerError?.message || "ledger_error" });
+        if (atomicError || !atomicResult?.ok) {
+          skipped.push({ rowId: row.id, reason: atomicError?.message || "ledger_error" });
           continue;
         }
-
-        await writeClient
-          .from("bank_statement_rows")
-          .update({ assigned_account_head_id: accountHeadId, journal_id: journalId, ledger_entry_id: ledgerEntries[0].id })
-          .eq("id", row.id)
-          .eq("company_id", guard.employee.company_id)
-          .eq("import_id", params.id);
-
-        const { error: updateRowError } = await writeClient
-          .from("bank_statement_rows")
-          .update({
-            status: "posted",
-            ledger_entry_id: ledgerEntries[0].id,
-            journal_id: journalId,
-            notes: row.notes || (isExpense ? "Posted as expense from bank import." : "Posted as income from bank import.")
-          })
-          .eq("id", row.id);
-
-        if (!updateRowError) {
-          posted.push({ rowId: row.id, journalId, ledgerEntryIds: ledgerEntries.map((entry: any) => entry.id) });
-        } else {
-          skipped.push({ rowId: row.id, reason: updateRowError.message });
-        }
+        posted.push({ rowId: row.id, journalId: atomicResult.journal_id, ledgerEntryIds: atomicResult.ledger_entry_ids ?? [] });
       }
 
       return NextResponse.json({ ok: true, posted, skipped });

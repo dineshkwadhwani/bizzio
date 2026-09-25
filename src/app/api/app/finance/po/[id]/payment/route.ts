@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
+import { findPaymentAccount } from "@/lib/finance-ledger";
 
 const PaymentSchema = z.object({
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
@@ -16,7 +16,7 @@ const PaymentSchema = z.object({
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_make_payments");
     const supabase = createClient();
     const { data: payments, error } = await supabase.from("purchase_order_payments").select("*").eq("purchase_order_id", params.id).eq("company_id", guard.employee.company_id).order("paid_at", { ascending: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -27,7 +27,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_make_payments");
     const parsed = PaymentSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     const supabase = createClient();
@@ -64,11 +64,25 @@ export async function POST(request: Request, { params }: { params: { id: string 
       if (paymentGst > 0) { if (!inputGst) return NextResponse.json({ error: "Paid GST account is missing." }, { status: 400 }); journalLines.push({ accountHeadId: inputGst.id, amount: paymentGst, entryType: "debit", label: "Paid GST" }); }
     }
     journalLines.push({ accountHeadId: paymentAccount.id, amount: parsed.data.amount, entryType: "credit", label: "Bank/Cash" });
-    const journal = await createBalancedJournal(supabase, { companyId: guard.employee.company_id, lines: journalLines, paymentMode: parsed.data.payment_mode, referenceNumber: parsed.data.reference_number?.trim() || null, description: `${parsed.data.payment_type === "advance" ? "Advance" : "Payment"} for PO ${po.po_number}`, entryDate: parsed.data.payment_date, createdBy: guard.employee.id, sourceType: "manual_journal" });
-    if (journal.error || !journal.data) return NextResponse.json({ error: journal.error?.message || "Unable to post payment." }, { status: 500 });
-    const { data: payment, error: paymentError } = await supabase.from("purchase_order_payments").insert({ purchase_order_id: params.id, company_id: guard.employee.company_id, payment_type: parsed.data.payment_type, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number?.trim() || null, amount: parsed.data.amount, supplier_invoice_path: parsed.data.supplier_invoice_path || null, supplier_invoice_name: parsed.data.supplier_invoice_name || null, paid_by: guard.employee.id, paid_at: `${parsed.data.payment_date}T00:00:00.000Z`, journal_id: journal.journalId }).select().single();
-    if (paymentError) return NextResponse.json({ error: paymentError.message }, { status: 500 });
-    await supabase.from("ledger_entries").update({ source_id: payment.id, attachment_path: parsed.data.supplier_invoice_path || null, attachment_name: parsed.data.supplier_invoice_name || null }).eq("company_id", guard.employee.company_id).eq("journal_id", journal.journalId);
+    const paymentId = crypto.randomUUID();
+    const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+      p_operation: "purchase_order_payment",
+      p_company_id: guard.employee.company_id,
+      p_actor_employee_id: guard.employee.id,
+      p_event_type: "purchase_order_payment",
+      p_event_date: parsed.data.payment_date,
+      p_description: `${parsed.data.payment_type === "advance" ? "Advance" : "Payment"} for PO ${po.po_number}`,
+      p_reference_number: parsed.data.reference_number?.trim() || null,
+      p_payment_mode: parsed.data.payment_mode,
+      p_source_id: paymentId,
+      p_payload: { purchase_order_id: params.id, payment_type: parsed.data.payment_type, amount: parsed.data.amount, paid_at: `${parsed.data.payment_date}T00:00:00.000Z` },
+      p_postings: [{ source_type: "manual_journal", source_id: paymentId, lines: journalLines.map((line) => ({ account_head_id: line.accountHeadId, amount: line.amount, entry_type: line.entryType, label: line.label })) }],
+      p_attachment_path: parsed.data.supplier_invoice_path || null,
+      p_attachment_name: parsed.data.supplier_invoice_name || null,
+      p_attachment_bucket: "purchase-order-documents"
+    });
+    if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message || "Unable to post payment." }, { status: 500 });
+    const { data: payment } = await supabase.from("purchase_order_payments").select().eq("id", paymentId).eq("company_id", guard.employee.company_id).single();
     return NextResponse.json({ payment }, { status: 201 });
   } catch (error) { return error as Response; }
 }

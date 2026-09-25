@@ -1,10 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/utils";
+import { effectiveToggles, hasPermission } from "@/lib/permissions";
 
 export const revalidate = 0;
 
 async function getVisibleEmployeeIds(supabase: any, employee: any) {
-  if (!employee?.is_manager && !employee?.is_director) return [employee.id];
+  if (!employee || !["manager", "director", "ceo"].includes(employee.hierarchy_role ?? "")) return [employee.id];
 
   const { data: employees } = await supabase
     .from("employees")
@@ -32,12 +33,19 @@ export default async function EmployeeReportsPage() {
 
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, is_manager, is_director")
+    .select("id, company_id, hierarchy_role, is_manager, is_director, permission_overrides, permission_templates(toggles)")
     .eq("user_id", user.id)
     .single();
 
   if (!employee) {
     return <div className="card p-6 text-sm text-ink-500">Employee profile not found.</div>;
+  }
+
+  const template = Array.isArray((employee as any).permission_templates)
+    ? (employee as any).permission_templates[0]
+    : (employee as any).permission_templates;
+  if (!hasPermission(effectiveToggles(template?.toggles, employee.permission_overrides), "view_hierarchy_reports")) {
+    return <div className="card p-6 text-sm text-ink-500">You do not have permission to view this report.</div>;
   }
 
   const visibleIds = await getVisibleEmployeeIds(supabase, employee);
@@ -80,13 +88,14 @@ export default async function EmployeeReportsPage() {
     leave: (attendance.data ?? []).filter((row: any) => row.status === "on_leave" || row.status === "half_day").length
   };
 
-  const scopeLabel = employee.is_manager || employee.is_director ? "Hierarchy view" : "Own view";
+  const hasHierarchyScope = ["manager", "director", "ceo"].includes(employee.hierarchy_role ?? (employee.is_manager || employee.is_director ? "manager" : "employee"));
+  const scopeLabel = hasHierarchyScope ? "Hierarchy view" : "Own view";
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-ink-900">Reports</h1>
       <p className="mt-1 text-sm text-ink-500">
-        {scopeLabel}: {employee.is_manager || employee.is_director ? "manager/director hierarchy data" : "your own data only"}
+        {scopeLabel}: {hasHierarchyScope ? "manager/director/CEO hierarchy data" : "your own data only"}
       </p>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">

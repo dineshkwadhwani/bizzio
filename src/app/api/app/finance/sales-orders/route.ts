@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 
 const CreateSalesOrderSchema = z.object({
@@ -50,7 +50,7 @@ async function getNextSalesOrderNumber(supabase: ReturnType<typeof createClient>
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_orders");
     const supabase = createClient();
     const { data, error } = await supabase
       .from("sales_orders")
@@ -67,7 +67,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_orders");
     const body = await request.json();
     const parsed = CreateSalesOrderSchema.safeParse(body);
 

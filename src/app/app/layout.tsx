@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { DashboardShell, type DashboardIdentity, type NavItem } from "@/components/layout/DashboardShell";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { effectiveToggles } from "@/lib/permissions";
+import { effectiveToggles, hasCapability, hasPermission, moduleEnabled } from "@/lib/permissions";
 import { MissingDocumentsModal } from "@/components/app/MissingDocumentsModal";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,16 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     ? (employee as any).permission_templates[0]
     : (employee as any)?.permission_templates;
   const toggles = effectiveToggles(employeeTemplate?.toggles, employee?.permission_overrides);
-  const canApproveExpenses = toggles.approve_pay_expenses === true;
+  const { data: company } = employee
+    ? await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle()
+    : { data: null };
+  const { data: plan } = company?.plan_id
+    ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle()
+    : { data: null };
+  const featureBundle = plan?.is_active ? (plan?.feature_bundle ?? {}) as Record<string, any> : {};
+  const canFinance = moduleEnabled(featureBundle, "finance") && hasCapability(employee, "finance");
+  const canOperations = moduleEnabled(featureBundle, "finance") && hasCapability(employee, "operations");
+  const canSales = moduleEnabled(featureBundle, "finance") && hasCapability(employee, "sales");
   const { data: financeReportsOverride } = employee
     ? await supabase.from("company_feature_overrides").select("enabled").eq("company_id", employee.company_id).eq("feature_key", "finance_reports").maybeSingle()
     : { data: null };
@@ -62,37 +71,54 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     { href: "/app/directory", label: "Directory", icon: "Users", section: "Workspace" }
   ];
 
-  if (toggles.submit_timesheet) nav.push({ href: "/app/timesheet", label: "Timesheet", icon: "FileText", section: "Requests" });
-  if (toggles.submit_dcr) nav.push({ href: "/app/dcr", label: "DCR", icon: "PhoneCall", section: "Requests" });
-  if (employee?.is_manager || employee?.is_finance || canApproveExpenses) nav.push({ href: "/app/approvals", label: "Approvals", icon: "CheckSquare", section: "Requests" });
-  if (employee?.is_finance) {
-    nav.push({ href: "/app/finance", label: "Finance", icon: "Landmark", section: "Finance" });
-    nav.push({ href: "/app/finance/vendors", label: "Vendors", icon: "Landmark", section: "Finance" });
-    nav.push({ href: "/app/finance/customers", label: "Customers", icon: "Landmark", section: "Finance" });
-    if (salesCycleEnabled && toggles.sales_cycle) {
-      nav.push({ href: "/app/finance/quotations", label: "Quotations", icon: "FileText", section: "Operations" });
-      nav.push({ href: "/app/finance/sales-orders", label: "Sales Orders", icon: "FileText", section: "Operations" });
-      nav.push({ href: "/app/finance/invoices", label: "Sales Invoices", icon: "FileText", section: "Operations" });
-      nav.push({ href: "/app/finance/receive-payments", label: "Receive Payments", icon: "CreditCard", section: "Operations" });
-    }
-    if (purchaseCycleEnabled && toggles.purchase_cycle) {
-      nav.push({ href: "/app/finance/po", label: "Purchase Orders", icon: "FileText", section: "Operations" });
-      nav.push({ href: "/app/finance/purchase-invoices", label: "Purchase Invoices", icon: "FileText", section: "Operations" });
-      nav.push({ href: "/app/finance/payments", label: "Make Payments", icon: "CreditCard", section: "Operations" });
-    }
-    nav.push({ href: "/app/finance/salary", label: "Salary", icon: "Landmark", section: "Finance" });
-    nav.push({ href: "/app/finance/adhoc-entries", label: "Ad-hoc Entries", icon: "Landmark", section: "Finance" });
-    nav.push({ href: "/app/finance/bank-import", label: "Bank Import", icon: "Landmark", section: "Finance" });
-    nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
-    nav.push({ href: "/app/finance/reports/invoices", label: "Invoice Report", icon: "FileText", section: "Insights" });
+  if (moduleEnabled(featureBundle, "timesheets") && hasCapability(employee, "software_engineer") && hasPermission(toggles, "submit_timesheet")) {
+    nav.push({ href: "/app/timesheet", label: "Timesheet", icon: "FileText", section: "Requests" });
   }
-  if (!employee?.is_finance && canApproveExpenses) nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
-  if (toggles.raise_expense) nav.push({ href: "/app/expenses", label: "Expenses", icon: "ReceiptText", section: "Finance" });
-  nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3", section: "Insights" });
-  if (employee?.is_finance && toggles.finance_reports && financeReportsEnabled) {
-    nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
-    nav.push({ href: "/app/finance/reports/transactions", label: "Transaction Report", icon: "FileText", section: "Insights" });
-    nav.push({ href: "/app/finance/reports/balance-sheet", label: "Balance Sheet", icon: "FileText", section: "Insights" });
+  if (moduleEnabled(featureBundle, "dcr") && hasCapability(employee, "sales") && hasPermission(toggles, "submit_dcr")) {
+    nav.push({ href: "/app/dcr", label: "DCR", icon: "PhoneCall", section: "Requests" });
+  }
+  const canApprove = ["manager", "director"].includes(employee?.hierarchy_role ?? "") && (hasPermission(toggles, "approve_leave") || hasPermission(toggles, "approve_expenses"));
+  if (canApprove) nav.push({ href: "/app/approvals", label: "Approvals", icon: "CheckSquare", section: "Requests" });
+  if (canSales && hasPermission(toggles, "sales_quotations")) {
+    nav.push({ href: "/app/finance/quotations", label: "Quotations", icon: "FileText", section: "Sales" });
+  }
+  if (canOperations) {
+    if (hasPermission(toggles, "operations_vendors")) nav.push({ href: "/app/finance/vendors", label: "Vendors", icon: "Landmark", section: "Operations" });
+    if (hasPermission(toggles, "operations_customers")) nav.push({ href: "/app/finance/customers", label: "Customers", icon: "Landmark", section: "Operations" });
+    if (salesCycleEnabled && hasPermission(toggles, "operations_sales_orders")) {
+      nav.push({ href: "/app/finance/sales-orders", label: "Sales Orders", icon: "FileText", section: "Operations" });
+    }
+    if (salesCycleEnabled && hasPermission(toggles, "operations_sales_invoices")) {
+      nav.push({ href: "/app/finance/invoices", label: "Sales Invoices", icon: "FileText", section: "Operations" });
+    }
+    if (purchaseCycleEnabled && hasPermission(toggles, "operations_purchase_orders")) {
+      nav.push({ href: "/app/finance/po", label: "Purchase Orders", icon: "FileText", section: "Operations" });
+    }
+    if (purchaseCycleEnabled && hasPermission(toggles, "operations_purchase_invoices")) {
+      nav.push({ href: "/app/finance/purchase-invoices", label: "Purchase Invoices", icon: "FileText", section: "Operations" });
+    }
+  }
+  if (canFinance) {
+    if (hasPermission(toggles, "finance_make_payments")) nav.push({ href: "/app/finance/payments", label: "Make Payments", icon: "CreditCard", section: "Finance" });
+    if (hasPermission(toggles, "finance_receive_payments")) nav.push({ href: "/app/finance/receive-payments", label: "Receive Payments", icon: "CreditCard", section: "Finance" });
+    if (hasPermission(toggles, "finance_salary")) nav.push({ href: "/app/finance/salary", label: "Salary", icon: "Landmark", section: "Finance" });
+    if (hasPermission(toggles, "finance_adhoc_entries")) nav.push({ href: "/app/finance/adhoc-entries", label: "Ad-hoc Entries", icon: "Landmark", section: "Finance" });
+    if (hasPermission(toggles, "finance_bank_import")) nav.push({ href: "/app/finance/bank-import", label: "Bank Import", icon: "Landmark", section: "Finance" });
+    if (hasPermission(toggles, "finance_expense_claims") || hasPermission(toggles, "raise_expense")) nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
+  }
+  const canReviewHierarchyClaims = ["manager", "director", "ceo"].includes(employee?.hierarchy_role ?? "");
+  if (canReviewHierarchyClaims && !nav.some((item) => item.href === "/app/finance/expense-claims")) {
+    nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
+  }
+  if (moduleEnabled(featureBundle, "expense")) nav.push({ href: "/app/expenses", label: "Expenses", icon: "ReceiptText", section: "Finance" });
+  if (hasPermission(toggles, "view_hierarchy_reports")) {
+    nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3", section: "Insights" });
+  }
+  if (canFinance && financeReportsEnabled) {
+    if (hasPermission(toggles, "view_finance_journal_report")) nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
+    if (hasPermission(toggles, "view_finance_transaction_report")) nav.push({ href: "/app/finance/reports/transactions", label: "Transaction Report", icon: "FileText", section: "Insights" });
+    if (hasPermission(toggles, "view_finance_balance_sheet")) nav.push({ href: "/app/finance/reports/balance-sheet", label: "Balance Sheet", icon: "FileText", section: "Insights" });
+    if (hasPermission(toggles, "view_finance_invoice_report")) nav.push({ href: "/app/finance/reports/invoices", label: "Invoice Report", icon: "FileText", section: "Insights" });
   }
 
   return (

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
+import { findPaymentAccount } from "@/lib/finance-ledger";
+import { effectiveToggles } from "@/lib/permissions";
 
 const Schema = z.object({
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
@@ -13,7 +14,11 @@ const Schema = z.object({
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("pay_expenses");
+    const template = Array.isArray((guard.employee as any)?.permission_templates) ? (guard.employee as any).permission_templates[0] : (guard.employee as any)?.permission_templates;
+    if (effectiveToggles(template?.toggles, (guard.employee as any)?.permission_overrides).pay_expenses !== true) {
+      return NextResponse.json({ error: "Expense payment permission is required." }, { status: 403 });
+    }
     const parsed = Schema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     const supabase = createClient();
@@ -49,63 +54,42 @@ export async function POST(request: Request, { params }: { params: { id: string 
     });
     const journalNotes = claim.claim_notes || parsed.data.notes || null;
     const description = `Expense claim: ${claim.claim_name} — reimbursement to ${claim.employees?.name ?? "employee"}`;
-    const transactionEventId = crypto.randomUUID();
+    const reimbursementJournalId = crypto.randomUUID();
+    const paymentJournalId = crypto.randomUUID();
     const receiptPath = items.find((item: any) => item.receipt_url)?.receipt_url || null;
     const receiptName = receiptPath ? "Expense receipt" : null;
-    const reimbursementPosting = await createBalancedJournal(supabase, {
-      companyId: guard.employee.company_id,
-      lines: [
-        ...reimbursedLines,
-        { accountHeadId: reimbursementAccount.id, amount: totalAmount, entryType: "credit" as const, label: "Employee Reimbursement Payable" }
+    const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+      p_operation: "expense_payment",
+      p_company_id: guard.employee.company_id,
+      p_actor_employee_id: guard.employee.id,
+      p_event_type: "expense_reimbursement",
+      p_event_date: parsed.data.paid_at,
+      p_description: description,
+      p_reference_number: parsed.data.reference_number || null,
+      p_payment_mode: parsed.data.payment_mode,
+      p_source_id: claim.id,
+      p_payload: {
+        paid_at: `${parsed.data.paid_at}T00:00:00Z`,
+        payment_journal_id: paymentJournalId,
+        reimbursement_journal_id: reimbursementJournalId,
+        notes: journalNotes
+      },
+      p_postings: [
+        { journal_id: reimbursementJournalId, payment_mode: null, source_type: "expense_claim", source_id: claim.id, lines: [
+          ...reimbursedLines.map((line) => ({ account_head_id: line.accountHeadId, amount: line.amount, entry_type: line.entryType, label: line.label })),
+          { account_head_id: reimbursementAccount.id, amount: totalAmount, entry_type: "credit", label: "Employee Reimbursement Payable" }
+        ]},
+        { journal_id: paymentJournalId, source_type: "expense_claim", source_id: claim.id, lines: [
+          { account_head_id: reimbursementAccount.id, amount: totalAmount, entry_type: "debit", label: "Employee Reimbursement Payable" },
+          { account_head_id: paymentAccount.id, amount: totalAmount, entry_type: "credit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }
+        ]}
       ],
-      paymentMode: null,
-      referenceNumber: parsed.data.reference_number || null,
-      description,
-      notes: journalNotes,
-      entryDate: parsed.data.paid_at,
-      createdBy: guard.employee.id,
-      sourceType: "expense_claim",
-      sourceId: claim.id,
-      transactionEventId,
-      eventType: "expense_reimbursement",
-      attachmentPath: receiptPath,
-      attachmentName: receiptName,
-      attachmentBucket: "expense-receipts"
+      p_attachment_path: receiptPath,
+      p_attachment_name: receiptName,
+      p_attachment_bucket: "expense-receipts"
     });
-    if (reimbursementPosting.error || !reimbursementPosting.data?.length) return NextResponse.json({ error: reimbursementPosting.error?.message ?? "Could not create reimbursement journal entry." }, { status: 500 });
-    const paymentPosting = await createBalancedJournal(supabase, {
-      companyId: guard.employee.company_id,
-      lines: [
-        { accountHeadId: reimbursementAccount.id, amount: totalAmount, entryType: "debit", label: "Employee Reimbursement Payable" },
-        { accountHeadId: paymentAccount.id, amount: totalAmount, entryType: "credit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }
-      ],
-      paymentMode: parsed.data.payment_mode,
-      referenceNumber: parsed.data.reference_number || null,
-      description,
-      notes: journalNotes,
-      entryDate: parsed.data.paid_at,
-      createdBy: guard.employee.id,
-      sourceType: "expense_claim",
-      sourceId: claim.id,
-      transactionEventId,
-      eventType: "expense_reimbursement",
-      attachmentPath: receiptPath,
-      attachmentName: receiptName,
-      attachmentBucket: "expense-receipts"
-    });
-    if (paymentPosting.error || !paymentPosting.data?.length) {
-      await supabase.from("ledger_entries").delete().eq("journal_id", reimbursementPosting.journalId);
-      return NextResponse.json({ error: paymentPosting.error?.message ?? "Could not create payment journal entry." }, { status: 500 });
-    }
-    const ledgerEntries = [...reimbursementPosting.data, ...paymentPosting.data];
-    const ledgerEntryIds = ledgerEntries.map((entry: any) => entry.id);
-    const { error: paymentError } = await supabase.from("expense_payments").insert({ claim_id: claim.id, company_id: guard.employee.company_id, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number || null, paid_by: guard.employee.id, paid_at: `${parsed.data.paid_at}T00:00:00Z`, ledger_entry_ids: ledgerEntryIds, journal_id: paymentPosting.journalId, reimbursement_journal_id: reimbursementPosting.journalId, transaction_event_id: transactionEventId, notes: parsed.data.notes || null });
-    if (paymentError) {
-      await supabase.from("ledger_entries").delete().in("journal_id", [reimbursementPosting.journalId, paymentPosting.journalId]);
-      return NextResponse.json({ error: paymentError.message }, { status: 500 });
-    }
-    const { data: updated, error: updateError } = await supabase.from("expense_claims").update({ status: "paid" }).eq("id", claim.id).select().single();
-    if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
-    return NextResponse.json({ claim: updated, ledgerEntryIds });
+    if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message ?? "Could not post expense payment." }, { status: 500 });
+    const { data: updated } = await supabase.from("expense_claims").select("*").eq("id", claim.id).eq("company_id", guard.employee.company_id).single();
+    return NextResponse.json({ claim: updated, ledgerEntryIds: atomicResult.ledger_entry_ids ?? [] });
   } catch (error) { return error as Response; }
 }

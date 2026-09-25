@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 
 type EmployeeRow = {
   id: string;
@@ -84,6 +85,7 @@ export default function SalaryPage() {
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<"cash" | "cheque" | "bank_transfer">("bank_transfer");
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -154,39 +156,64 @@ export default function SalaryPage() {
     setLoading(true);
     setError(null);
     setNotice(null);
+    try {
+      let attachmentPath: string | null = null;
+      let attachmentName: string | null = null;
+      if (attachment) {
+        const supabase = createClient();
+        const { data: auth } = await supabase.auth.getUser();
+        const { data: userRow, error: userError } = await supabase
+          .from("users")
+          .select("company_id")
+          .eq("id", auth.user?.id)
+          .single();
+        if (userError || !userRow?.company_id) throw new Error("Could not determine the company for the attachment.");
+        const safeName = attachment.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const path = `${userRow.company_id}/salary-payments/${employee.id}-${Date.now()}-${safeName}`;
+        const upload = await supabase.storage.from("transaction-documents").upload(path, attachment, { upsert: false });
+        if (upload.error) throw new Error(upload.error.message);
+        attachmentPath = upload.data.path;
+        attachmentName = attachment.name;
+      }
 
-    const res = await fetch("/api/app/finance/salary", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        employee_id: employee.id,
-        paid_for_period: period,
-        payment_mode: paymentMode,
-        reference_number: referenceNumber,
-        amount,
-        payment_date: paymentDate
-      })
-    });
+      const res = await fetch("/api/app/finance/salary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employee_id: employee.id,
+          paid_for_period: period,
+          payment_mode: paymentMode,
+          reference_number: referenceNumber,
+          attachment_path: attachmentPath,
+          attachment_name: attachmentName,
+          amount,
+          payment_date: paymentDate
+        })
+      });
 
-    const json = await res.json();
-    setLoading(false);
+      const json = await res.json();
+      if (!res.ok) {
+        setError(typeof json.error === "string" ? json.error : "Unable to record salary payment.");
+        return;
+      }
 
-    if (!res.ok) {
-      setError(typeof json.error === "string" ? json.error : "Unable to record salary payment.");
-      return;
+      setNotice(`Salary recorded for ${employee.name} for ${period}.`);
+      setActiveEmployeeId(null);
+      setReferenceNumber("");
+      setAttachment(null);
+
+      const payments = await fetch("/api/app/finance/salary?mode=payments");
+      const paymentsJson = await payments.json();
+      const grouped: Record<string, string[]> = {};
+      (paymentsJson.payments || []).forEach((payment: SalaryPayment) => {
+        grouped[payment.employee_id] = [...(grouped[payment.employee_id] || []), payment.paid_for_period];
+      });
+      setPaymentsByEmployee(grouped);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unable to record salary payment.");
+    } finally {
+      setLoading(false);
     }
-
-    setNotice(`Salary recorded for ${employee.name} for ${period}.`);
-    setActiveEmployeeId(null);
-    setReferenceNumber("");
-
-    const payments = await fetch("/api/app/finance/salary?mode=payments");
-    const paymentsJson = await payments.json();
-    const grouped: Record<string, string[]> = {};
-    (paymentsJson.payments || []).forEach((payment: SalaryPayment) => {
-      grouped[payment.employee_id] = [...(grouped[payment.employee_id] || []), payment.paid_for_period];
-    });
-    setPaymentsByEmployee(grouped);
   }
 
   const visibleEmployees = employees
@@ -284,6 +311,17 @@ export default function SalaryPage() {
                     <div className="mt-4">
                       <label className="label">Reference</label>
                       <input className="input" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="UTR / cheque number / payment memo" />
+                    </div>
+
+                    <div className="mt-4">
+                      <label className="label">Supporting document</label>
+                      <input
+                        className="input"
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg,.webp,.xlsx,.xls,.csv"
+                        onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                      />
+                      <p className="mt-1 text-xs text-ink-500">Attach the salary advice, bank proof, or payment document.</p>
                     </div>
 
                     <div className="mt-4 flex items-center justify-between gap-3">

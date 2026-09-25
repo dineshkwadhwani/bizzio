@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { createBalancedJournal } from "@/lib/finance-ledger";
 
@@ -19,6 +19,8 @@ const Schema = z.object({
   vendor_invoice_number: z.string().trim().optional().or(z.literal("")),
   invoice_date: z.string().date(),
   due_date: z.string().date().nullable().optional(),
+  attachment_path: z.string().trim().nullable().optional(),
+  attachment_name: z.string().trim().nullable().optional(),
   status: z.enum(["draft", "received"]).default("draft"),
   lines: z.array(LineSchema).min(1)
 });
@@ -46,7 +48,7 @@ async function nextNumber(supabase: any, companyId: string) {
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_purchase_invoices");
     const supabase = createClient();
     const { data, error } = await supabase.from("purchase_invoices").select("*, vendor:vendors(id,name)").eq("company_id", guard.employee.company_id).order("invoice_date", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -56,7 +58,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_purchase_invoices");
     const parsed = Schema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     const supabase = createClient();
@@ -76,7 +78,7 @@ export async function POST(request: Request) {
     const gst = Number(calculated.reduce((s, l) => s + l.cgst_amount + l.sgst_amount + l.igst_amount, 0).toFixed(2));
     const total = Number((base + gst).toFixed(2));
     const number = await nextNumber(supabase, companyId);
-    const { data: invoice, error } = await supabase.from("purchase_invoices").insert({ company_id: companyId, vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, invoice_number: number, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: parsed.data.status, base_amount: base, gst_amount: gst, total_amount: total, created_by: guard.employee.id }).select("*").single();
+    const { data: invoice, error } = await supabase.from("purchase_invoices").insert({ company_id: companyId, vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, invoice_number: number, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, attachment_path: parsed.data.attachment_path?.trim() || null, attachment_name: parsed.data.attachment_name?.trim() || null, status: parsed.data.status, base_amount: base, gst_amount: gst, total_amount: total, created_by: guard.employee.id }).select("*").single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     const { data: lineItems, error: linesError } = await supabase.from("purchase_invoice_line_items").insert(calculated.map((line) => ({ purchase_invoice_id: invoice.id, company_id: companyId, account_head_id: line.account_head_id, description: line.description, qty: line.qty, rate: line.rate, gst_percent: line.gst_percent, gst_type: line.gst_type, cgst_amount: line.cgst_amount, sgst_amount: line.sgst_amount, igst_amount: line.igst_amount, line_total: line.line_total }))).select();
     if (linesError) return NextResponse.json({ error: linesError.message }, { status: 500 });

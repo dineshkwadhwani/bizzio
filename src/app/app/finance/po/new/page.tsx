@@ -105,7 +105,8 @@ export default function NewPurchaseOrderPage() {
       const path = `${userRow?.company_id}/purchase-orders/${json.po.id}-${Date.now()}.${extension}`;
       const upload = await supabase.storage.from("purchase-order-documents").upload(path, supplierQuotation, { upsert: false });
       if (upload.error) { setLoading(false); setError("Purchase Order created, but the supplier quotation could not be uploaded."); return; }
-      await fetch(`/api/app/finance/po/${json.po.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplier_quotation_path: upload.data.path, supplier_quotation_name: supplierQuotation.name }) });
+      const linked = await fetch(`/api/app/finance/po/${json.po.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplier_quotation_path: upload.data.path, supplier_quotation_name: supplierQuotation.name }) });
+      if (!linked.ok) await supabase.storage.from("purchase-order-documents").remove([upload.data.path]);
     }
     router.push(`/app/finance/po/${json.po.id}`);
   }

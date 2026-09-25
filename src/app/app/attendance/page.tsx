@@ -205,7 +205,7 @@ export default function AttendancePage() {
       if (!res.ok) { setError(typeof json.error === "string" ? json.error : "Could not submit leave request."); return; }
       await load();
       setSelectedDate(null);
-      setMessage(json.autoApproved ? "Leave approved automatically for the root employee." : "Leave request submitted successfully.");
+      setMessage(json.autoApproved ? "Leave approved automatically for the CEO." : "Leave request submitted successfully.");
     } catch {
       setError("Could not submit leave request. Please check your connection and try again.");
     } finally {

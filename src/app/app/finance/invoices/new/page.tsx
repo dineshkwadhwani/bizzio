@@ -181,7 +181,7 @@ export default function NewInvoicePage() {
           const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
           const path = `${userRow.company_id}/invoices/${json.invoice.id}-${Date.now()}-${safeName}`;
           const { data: uploaded } = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false });
-          if (uploaded) await fetch(`/api/app/finance/invoices/${json.invoice.id}/attachments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storage_path: uploaded.path, file_name: file.name }) });
+          if (uploaded) { const linked = await fetch(`/api/app/finance/invoices/${json.invoice.id}/attachments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storage_path: uploaded.path, file_name: file.name }) }); if (!linked.ok) await supabase.storage.from("transaction-documents").remove([uploaded.path]); }
         }
       }
     }
@@ -252,7 +252,7 @@ export default function NewInvoicePage() {
                 )}
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-4">
                 <div className="md:col-span-2">
                   <label className="label">Description</label>
                   <input className="input" value={line.description} onChange={(e) => updateLine(index, "description", e.target.value)} />
@@ -275,6 +275,10 @@ export default function NewInvoicePage() {
                     <option value="cgst_sgst">CGST + SGST</option>
                     <option value="igst">IGST</option>
                   </select>
+                </div>
+                <div>
+                  <label className="label">Line Total</label>
+                  <div className="input bg-ink-50 text-right font-medium">₹{(Number(line.qty || 0) * Number(line.rate || 0) * (1 + Number(line.gst_percent || 0) / 100)).toFixed(2)}</div>
                 </div>
               </div>
             </div>

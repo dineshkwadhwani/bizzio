@@ -28,10 +28,13 @@ export async function POST(request: Request) {
   const supabase = createClient();
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, reporting_manager_id")
+    .select("id, company_id, reporting_manager_id, hierarchy_role")
     .eq("user_id", guard.user.id)
     .single();
   if (!employee) return NextResponse.json({ error: "Employee record not found" }, { status: 404 });
+  if (employee.hierarchy_role !== "ceo" && !employee.reporting_manager_id) {
+    return NextResponse.json({ error: "Your employee hierarchy is incomplete. Please contact the company administrator." }, { status: 409 });
+  }
 
   // Holiday-date guard (Module 3 §2.1) — reject if any date in range is a holiday.
   const { data: holidays } = await supabase
@@ -60,15 +63,16 @@ export async function POST(request: Request) {
 
   const { data: leaveRequest, error } = await supabase
     .from("leave_requests")
-    .insert({ ...parsed.data, employee_id: employee.id, company_id: employee.company_id, status: employee.reporting_manager_id ? "submitted" : "approved" })
+    .insert({ ...parsed.data, employee_id: employee.id, company_id: employee.company_id, status: employee.hierarchy_role === "ceo" ? "approved" : "submitted" })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  if (employee.reporting_manager_id) {
+  if (employee.hierarchy_role !== "ceo" && employee.reporting_manager_id) {
     await supabase.from("approval_steps").insert({
       entity_type: "leave_request",
       entity_id: leaveRequest.id,
+      company_id: employee.company_id,
       level: 1,
       approver_employee_id: employee.reporting_manager_id,
       status: "pending"
@@ -107,5 +111,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ leaveRequest, autoApproved: !employee.reporting_manager_id });
+  return NextResponse.json({ leaveRequest, autoApproved: employee.hierarchy_role === "ceo" });
 }

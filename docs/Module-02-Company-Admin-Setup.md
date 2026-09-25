@@ -42,9 +42,9 @@
 ## 4. Employee Management
 
 ### 4.1 Reporting Hierarchy Rule
-- Every employee **must** have a Reporting Manager, **except exactly one root employee** (the top of the org chart) who has no manager
-- The root is just a regular employee record with Manager left blank — not the Company Admin, and not a specially-flagged role. Company Admin enforces this via validation: only one employee per company can have a blank Manager field at a time (typically the CEO/Founder as an employee record)
-- Approval hierarchy (Leave/Timesheet/Expense) always walks up this same Manager chain (per main spec §7)
+- Every employee **must** have a Reporting Manager, except exactly one active root employee who has no manager.
+- `hierarchy_role` is the source of truth: `employee`, `manager`, `director`, or `ceo`. The CEO is the single root; Company Admin validation prevents multiple active CEOs or blank-manager roots.
+- Directors are managers for approval purposes. Approval hierarchy (Leave/Timesheet/Expense) walks this same Manager chain.
 
 ### 4.2 Add / Edit Employee — Fields
 **Standard:** Name, Email, Phone, DOB, Gender, Date of Joining, Department, Sub-team (if enabled), Title, Reporting Manager (dropdown of existing employees; required unless this is the root), Employee Code (auto-generated), Profile Photo
@@ -53,11 +53,11 @@
 - Emergency Contact (name + phone) — **optional**
 - Bank Account details (Account No., IFSC, Bank Name) — **optional**, for reference only, useful given the "Pay Salary" convenience action exists even though there's no full payroll
 
-**Special flags (checkboxes at creation, editable later):**
-- `isManager`
-- `isDirector`
-- `isFinance` → reveals Finance Scope selector (Department-scoped / Company-wide)
-- `isHR` → reveals a checklist of HR-lite screens this employee gets access to (Holiday Calendar, Leave Type config, Employee onboarding/bulk upload, Department management)
+**Access fields (checkboxes at creation, editable later):**
+- Hierarchy role: Employee / Manager / Director / CEO (only one active CEO/root)
+- Capabilities: `is_hr`, `is_finance` (reveals Finance Scope: Department / Company),
+  `is_operations`, `is_sales`, `is_support`, and `is_software_engineer`
+- `is_hr` may be accompanied by the HR screen selection (`hr_screens`)
 
 **Permission Template:**
 - On creation, Admin picks a **Permission Template** (defaults to the Title's linked template if one exists) which sets the initial action-toggle matrix (§6) — Admin can override individual toggles right there before saving
@@ -81,7 +81,7 @@
 - Documents visible to: Company Admin (full access), HR-flagged employees if granted this screen, and the employee themselves (view-only, on their own profile — cannot delete/replace without Admin)
 
 ### 4.5 Bulk Upload (Excel)
-- Template columns: Name, Email, Phone, DOB, Gender, DOJ, Department, Sub-team, Title, Reporting Manager Email, isManager, isDirector, isFinance (+ finance scope), isHR (+ selected HR screens), Permission Template name
+- Template columns: Name, Email, Phone, DOB, Gender, DOJ, Department, Sub-team, Title, Reporting Manager Email, hierarchy role, capability flags (HR, Finance + scope, Operations, Sales, Support, Software Engineer), HR screen selection, Permission Template name
 - Validation on upload: duplicate email check, valid Reporting Manager email must already exist (or be earlier in the same file, resolved in two passes), exactly one root allowed per company
 - On successful save → Resend invite email per employee with set-password link
 - Row-level error report shown for any rows that fail validation, rest of the valid rows still get created
@@ -104,13 +104,18 @@
 
 ## 6. Permission Templates (Task Matrix)
 
-- Company Admin defines reusable **Permission Templates** — a named bundle of the per-employee action toggles from main spec §2:
-  - Submit Timesheet / Submit DCR (mutually exclusive)
-  - Mark Attendance
-  - Apply for Leave
-  - Raise Expense for Reimbursement
-  - (If isFinance) Manage Vendors, Create PO, Manage Customers, Create SO, Generate Invoice, Record Other Income, Approve/Pay Expenses
-  - (If isHR) selected HR-lite screens
+- Company Admin defines reusable **Permission Templates** using the canonical groups:
+  - HR & workflows: attendance, leave, expense claim creation/approval/payment
+  - Operations: vendors, customers, purchase orders/invoices, sales orders/invoices
+  - Sales: quotations and DCR
+  - Finance: payments, receipts, salary, ad-hoc entries, bank import, expense claims,
+    journal/edit actions, and other income
+  - Reports: journal, transaction, balance sheet, invoice, hierarchy, timesheet,
+    and DCR reports as separate permissions
+  - Time: submit timesheets
+  - Support: support access
+- A capability flag identifies which functional area an employee belongs to; it
+  does not replace the specific template permission or package entitlement.
 - Templates can optionally be linked to a **Title** (§3) as its default
 - When adding/editing an employee, Admin picks a template (pre-fills the matrix) and can still override individual toggles for that specific employee — template changes later do **not** retroactively change already-assigned employees (template is a starting point, not a live link)
 - Admin can create, edit, and delete templates from a dedicated "Permission Templates" screen
@@ -120,8 +125,10 @@
 ## 7. Approval Hierarchy Depth
 
 - Single company-wide setting (not per-department): **1 or 2** — simple dropdown/toggle in Company Settings
-- Depth 1 → only direct Manager approves Leave/Timesheet/Expense
+- Depth 1 → only the direct Manager approves Leave/Expense
 - Depth 2 → direct Manager, then Manager's Manager
+- Directors are eligible managers in the chain. The CEO is the root and their
+  own leave and expense requests are auto-approved.
 - Changing this setting takes effect immediately for all future approval requests (does not retroactively change requests already in flight)
 
 ---

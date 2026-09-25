@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, ensureInvoiceIssuedJournal, findPaymentAccount } from "@/lib/finance-ledger";
+import { ensureInvoiceIssuedJournal, findPaymentAccount } from "@/lib/finance-ledger";
 
 const Schema = z.object({
   receipt_type: z.enum(["invoice", "advance"]).default("invoice"),
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
   reference_number: z.string().trim().optional(),
+  attachment_path: z.string().trim().nullable().optional(),
+  attachment_name: z.string().trim().nullable().optional(),
   received_at: z.string().date(),
   amount: z.number().positive(),
   tds_amount: z.number().nonnegative().default(0),
@@ -18,7 +20,7 @@ const Schema = z.object({
 
 export async function GET() {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_receive_payments");
     const supabase = createClient();
     const { data, error } = await supabase.from("invoices").select("id, invoice_number, invoice_date, title, total_amount, gst_amount, status, customer:customers(id, name, party_account_head_id)").eq("company_id", guard.employee.company_id).neq("status", "draft").order("created_at", { ascending: false });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -43,7 +45,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_receive_payments");
     const parsed = Schema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
     if (parsed.data.allocations.length && (parsed.data.tds_amount > 0 || parsed.data.discount_amount > 0)) return NextResponse.json({ error: "Enter TDS and discount against each invoice allocation." }, { status: 400 });
@@ -63,24 +65,26 @@ export async function POST(request: Request) {
       if (!advanceAccount) return NextResponse.json({ error: "Customer Advances liability account is missing." }, { status: 400 });
       if (parsed.data.allocations.length || parsed.data.tds_amount > 0 || parsed.data.discount_amount > 0) return NextResponse.json({ error: "An advance is not allocated to an invoice and cannot include TDS or discount." }, { status: 400 });
       const advanceId = crypto.randomUUID();
-      const posting = await createBalancedJournal(supabase, {
-        companyId: guard.employee.company_id,
-        lines: [
-          { accountHeadId: paymentAccount.id, amount: parsed.data.amount, entryType: "debit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" },
-          { accountHeadId: advanceAccount.id, amount: parsed.data.amount, entryType: "credit", label: "Customer Advance" }
-        ],
-        paymentMode: parsed.data.payment_mode,
-        referenceNumber: parsed.data.reference_number || null,
-        description: "Customer advance received from " + customer.name,
-        entryDate: parsed.data.received_at,
-        createdBy: guard.employee.id,
-        sourceType: "customer_advance",
-        sourceId: advanceId
+      const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+        p_operation: "customer_advance",
+        p_company_id: guard.employee.company_id,
+        p_actor_employee_id: guard.employee.id,
+        p_event_type: "customer_advance",
+        p_event_date: parsed.data.received_at,
+        p_description: "Customer advance received from " + customer.name,
+        p_reference_number: parsed.data.reference_number || null,
+        p_payment_mode: parsed.data.payment_mode,
+        p_source_id: advanceId,
+        p_payload: { customer_id: customer.id, account_head_id: advanceAccount.id, amount: parsed.data.amount, received_at: parsed.data.received_at },
+        p_postings: [{ source_type: "customer_advance", source_id: advanceId, lines: [
+          { account_head_id: paymentAccount.id, amount: parsed.data.amount, entry_type: "debit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" },
+          { account_head_id: advanceAccount.id, amount: parsed.data.amount, entry_type: "credit", label: "Customer Advance" }
+        ]}],
+        p_attachment_path: parsed.data.attachment_path?.trim() || null,
+        p_attachment_name: parsed.data.attachment_name?.trim() || null
       });
-      if (posting.error || !posting.data?.length) return NextResponse.json({ error: posting.error?.message || "Could not post the customer advance." }, { status: 500 });
-      const { error: advanceError } = await supabase.from("customer_advances").insert({ id: advanceId, company_id: guard.employee.company_id, customer_id: customer.id, account_head_id: advanceAccount.id, amount: parsed.data.amount, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number || null, received_at: parsed.data.received_at, journal_id: posting.journalId, created_by: guard.employee.id });
-      if (advanceError) return NextResponse.json({ error: advanceError.message }, { status: 500 });
-      return NextResponse.json({ ok: true, journal_id: posting.journalId, advance_id: advanceId }, { status: 201 });
+      if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message || "Could not post the customer advance." }, { status: 500 });
+      return NextResponse.json({ ok: true, journal_id: atomicResult.journal_id, advance_id: advanceId }, { status: 201 });
     }
     const { data: payerAccount } = await supabase.from("account_heads").select("id, name, type, is_party_account").eq("id", parsed.data.payer_account_id).eq("company_id", guard.employee.company_id).eq("is_active", true).single();
     if (!payerAccount) return NextResponse.json({ error: "The selected payer account is missing or inactive." }, { status: 400 });
@@ -90,11 +94,23 @@ export async function POST(request: Request) {
       const lines: any[] = [{ accountHeadId: paymentAccount.id, amount: parsed.data.amount, entryType: "debit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }, { accountHeadId: creditAccount.id, amount: grossAmount, entryType: "credit", label: creditAccount.name }];
       if (parsed.data.tds_amount > 0) { const { data: tds } = await supabase.from("account_heads").select("id").eq("company_id", guard.employee.company_id).eq("name", "TDS Receivable").eq("type", "asset").eq("is_active", true).maybeSingle(); if (!tds) return NextResponse.json({ error: "TDS Receivable account is missing." }, { status: 400 }); lines.push({ accountHeadId: tds.id, amount: parsed.data.tds_amount, entryType: "debit", label: "TDS Receivable" }); }
       if (parsed.data.discount_amount > 0) { const { data: discount } = await supabase.from("account_heads").select("id").eq("company_id", guard.employee.company_id).eq("name", "Sales Discounts").eq("type", "expense").eq("is_active", true).maybeSingle(); if (!discount) return NextResponse.json({ error: "Sales Discounts account is missing." }, { status: 400 }); lines.push({ accountHeadId: discount.id, amount: parsed.data.discount_amount, entryType: "debit", label: "Sales Discounts" }); }
-      const posting = await createBalancedJournal(supabase, { companyId: guard.employee.company_id, lines, paymentMode: parsed.data.payment_mode, referenceNumber: parsed.data.reference_number || null, description: "Standalone receipt from " + creditAccount.name, entryDate: parsed.data.received_at, createdBy: guard.employee.id, sourceType: "adhoc_income", sourceId: null });
-      if (posting.error || !posting.data?.length) return NextResponse.json({ error: posting.error?.message || "Could not post receipt." }, { status: 500 });
-      const { error: insertError } = await supabase.from("standalone_receipts").insert({ company_id: guard.employee.company_id, payer_name: creditAccount.name, account_head_id: creditAccount.id, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number || null, amount: grossAmount, received_at: parsed.data.received_at, journal_id: posting.journalId, created_by: guard.employee.id });
-      if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
-      return NextResponse.json({ ok: true, journal_id: posting.journalId }, { status: 201 });
+      const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+        p_operation: "standalone_receipt",
+        p_company_id: guard.employee.company_id,
+        p_actor_employee_id: guard.employee.id,
+        p_event_type: "standalone_receipt",
+        p_event_date: parsed.data.received_at,
+        p_description: "Standalone receipt from " + creditAccount.name,
+        p_reference_number: parsed.data.reference_number || null,
+        p_payment_mode: parsed.data.payment_mode,
+        p_source_id: null,
+        p_payload: { payer_name: creditAccount.name, account_head_id: creditAccount.id, amount: grossAmount, received_at: parsed.data.received_at },
+        p_postings: [{ source_type: "adhoc_income", lines }],
+        p_attachment_path: parsed.data.attachment_path?.trim() || null,
+        p_attachment_name: parsed.data.attachment_name?.trim() || null
+      });
+      if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message || "Could not post receipt." }, { status: 500 });
+      return NextResponse.json({ ok: true, journal_id: atomicResult.journal_id }, { status: 201 });
     }
     const invoiceIds = parsed.data.allocations.map((allocation) => allocation.invoice_id);
     const { data: invoices } = await supabase.from("invoices").select("id, invoice_number, invoice_date, total_amount, base_amount, gst_amount, status, customer_id, customer:customers(name, party_account_head_id)").eq("company_id", guard.employee.company_id).in("id", invoiceIds);
@@ -125,17 +141,40 @@ export async function POST(request: Request) {
     const discountTotal = parsed.data.allocations.reduce((sum, allocation) => sum + allocation.discount_amount, 0);
     if (tdsTotal > 0) { const { data: tds } = await supabase.from("account_heads").select("id").eq("company_id", guard.employee.company_id).eq("name", "TDS Receivable").eq("type", "asset").eq("is_active", true).maybeSingle(); if (!tds) return NextResponse.json({ error: "TDS Receivable account is missing." }, { status: 400 }); lines.push({ accountHeadId: tds.id, amount: tdsTotal, entryType: "debit", label: "TDS Receivable" }); }
     if (discountTotal > 0) { const { data: discount } = await supabase.from("account_heads").select("id").eq("company_id", guard.employee.company_id).eq("name", "Sales Discounts").eq("type", "expense").eq("is_active", true).maybeSingle(); if (!discount) return NextResponse.json({ error: "Sales Discounts account is missing." }, { status: 400 }); lines.push({ accountHeadId: discount.id, amount: discountTotal, entryType: "debit", label: "Sales Discounts" }); }
-    const posting = await createBalancedJournal(supabase, { companyId: guard.employee.company_id, lines, paymentMode: parsed.data.payment_mode, referenceNumber: parsed.data.reference_number || null, description: "Receive payment from " + payerAccount.name, entryDate: parsed.data.received_at, createdBy: guard.employee.id, sourceType: "invoice_receipt", sourceId: invoiceIds[0] });
-    if (posting.error || !posting.data?.length) return NextResponse.json({ error: posting.error?.message || "Could not post receipt." }, { status: 500 });
-    for (const allocation of parsed.data.allocations) {
+    const atomicAllocations = parsed.data.allocations.map((allocation) => {
       const invoice: any = invoices.find((item: any) => item.id === allocation.invoice_id);
-      const receiptAmount = Number((allocation.amount - allocation.tds_amount - allocation.discount_amount).toFixed(2));
-      // GST and taxable amount belong to the full invoice. The receipt only
-      // settles the receivable; it does not create another GST posting.
-      await supabase.from("receipts").insert({ invoice_id: invoice.id, company_id: guard.employee.company_id, receipt_number: `RCT-${new Date().getFullYear()}-${Date.now()}-${invoice.invoice_number}`, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number || null, amount: allocation.amount, amount_received: receiptAmount, taxable_amount: Number(invoice.base_amount || 0), gst_amount: Number(invoice.gst_amount || 0), tds_amount: allocation.tds_amount, discount_amount: allocation.discount_amount, delta_treatment: allocation.tds_amount > 0 ? "tds" : allocation.discount_amount > 0 ? "discount" : null, received_by: guard.employee.id, received_at: `${parsed.data.received_at}T00:00:00Z`, journal_id: posting.journalId, post_to_ledger: true, payer_name: payerAccount.name, payer_account_id: payerAccount.id });
-      const settled = Number((Number(settledByInvoice.get(invoice.id) || 0) + allocation.amount).toFixed(2));
-      await supabase.from("invoices").update({ status: settled >= Number(invoice.total_amount) - 0.005 ? "paid" : "sent" }).eq("id", invoice.id).eq("company_id", guard.employee.company_id);
-    }
-    return NextResponse.json({ ok: true, journal_id: posting.journalId });
+      return {
+        invoice_id: invoice.id,
+        receipt_number: `RCT-${new Date().getFullYear()}-${Date.now()}-${invoice.invoice_number}`,
+        amount: allocation.amount,
+        amount_received: Number((allocation.amount - allocation.tds_amount - allocation.discount_amount).toFixed(2)),
+        tds_amount: allocation.tds_amount,
+        discount_amount: allocation.discount_amount,
+        taxable_amount: Number(invoice.base_amount || 0),
+        gst_amount: Number(invoice.gst_amount || 0)
+      };
+    });
+    const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+      p_operation: "invoice_receipt",
+      p_company_id: guard.employee.company_id,
+      p_actor_employee_id: guard.employee.id,
+      p_event_type: "invoice_receipt",
+      p_event_date: parsed.data.received_at,
+      p_description: "Receive payment from " + payerAccount.name,
+      p_reference_number: parsed.data.reference_number || null,
+      p_payment_mode: parsed.data.payment_mode,
+      p_source_id: invoiceIds[0],
+      p_payload: {
+        received_at: `${parsed.data.received_at}T00:00:00Z`,
+        payer_name: payerAccount.name,
+        payer_account_id: payerAccount.id,
+        allocations: atomicAllocations
+      },
+      p_postings: [{ source_type: "invoice_receipt", source_id: invoiceIds[0], lines }],
+      p_attachment_path: parsed.data.attachment_path?.trim() || null,
+      p_attachment_name: parsed.data.attachment_name?.trim() || null
+    });
+    if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message || "Could not post receipt." }, { status: 500 });
+    return NextResponse.json({ ok: true, journal_id: atomicResult.journal_id });
   } catch (error) { return error as Response; }
 }

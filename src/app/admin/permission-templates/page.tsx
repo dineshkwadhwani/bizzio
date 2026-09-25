@@ -1,74 +1,60 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { BackButton } from "@/components/layout/BackButton";
+import { completePermissionSet, PERMISSION_GROUPS } from "@/lib/permissions";
 
-const TOGGLE_GROUPS = [
-  {
-    area: "Work Reporting",
-    toggles: [
-      { key: "submit_timesheet", label: "Submit Timesheet" },
-      { key: "submit_dcr", label: "Submit DCR" }
-    ]
-  },
-  {
-    area: "Attendance & Leave",
-    toggles: [
-      { key: "mark_attendance", label: "Mark Attendance" },
-      { key: "apply_leave", label: "Apply for Leave" }
-    ]
-  },
-  {
-    area: "Finance",
-    toggles: [
-      { key: "raise_expense", label: "Raise Expense for Reimbursement" },
-      { key: "manage_vendors", label: "Manage Vendors" },
-      { key: "create_po", label: "Create PO" },
-      { key: "purchase_cycle", label: "Purchase Cycle (PO & Payments)" },
-      { key: "manage_customers", label: "Manage Customers" },
-      { key: "create_so", label: "Create SO" },
-      { key: "generate_invoice", label: "Generate Invoice" },
-      { key: "sales_cycle", label: "Sales Cycle (Quotation, SO & Invoice)" },
-      { key: "record_other_income", label: "Record Other Income" },
-      { key: "approve_pay_expenses", label: "Approve/Pay Expenses" },
-      { key: "finance_reports", label: "Finance Reports (Finance Manager)" },
-      { key: "edit_transactions", label: "Edit Transactions" }
-    ]
-  }
-];
+const TOGGLE_GROUPS = PERMISSION_GROUPS.map((group) => ({
+  area: group.area,
+  toggles: group.permissions.map(([key, label]) => ({ key, label }))
+}));
 
 export default function PermissionTemplatesPage() {
-  const supabase = createClient();
   const [templates, setTemplates] = useState<any[]>([]);
   const [name, setName] = useState("");
-  const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const [toggles, setToggles] = useState<Record<string, boolean>>(() => completePermissionSet({}));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editToggles, setEditToggles] = useState<Record<string, boolean>>({});
   const [editError, setEditError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   async function load() {
-    const { data } = await supabase.from("permission_templates").select("*").order("name");
-    setTemplates(data ?? []);
+    const response = await fetch("/api/admin/permission-templates", { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) {
+      setLoadError(result.error ?? "Could not load permission templates.");
+      return;
+    }
+    setLoadError(null);
+    setTemplates(result.templates ?? []);
   }
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return;
-    const { data: auth } = await supabase.auth.getUser();
-    const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single();
-    await supabase.from("permission_templates").insert({ name, toggles, company_id: userRow?.company_id });
+    const response = await fetch("/api/admin/permission-templates", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name.trim(), toggles })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setSaveError(result.error ?? "Could not create the template.");
+      return;
+    }
+    setSaveError(null);
     setName("");
-    setToggles({});
-    load();
+    setToggles(completePermissionSet({}));
+    await load();
   }
 
   function startEdit(template: any) {
     setEditingId(template.id);
     setEditName(template.name);
-    setEditToggles(template.toggles ?? {});
+    setEditToggles(completePermissionSet(template.toggles ?? {}));
     setEditError(null);
   }
 
@@ -77,12 +63,14 @@ export default function PermissionTemplatesPage() {
       setEditError("Template name is required.");
       return;
     }
-    const { error } = await supabase
-      .from("permission_templates")
-      .update({ name: editName.trim(), toggles: editToggles })
-      .eq("id", templateId);
-    if (error) {
-      setEditError("Could not save the permission template.");
+    const response = await fetch("/api/admin/permission-templates", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: templateId, name: editName.trim(), toggles: editToggles })
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      setEditError(result.error ?? "Could not save the permission template.");
       return;
     }
     setEditingId(null);
@@ -94,8 +82,9 @@ export default function PermissionTemplatesPage() {
       <BackButton href="/admin/dashboard" label="Back to Dashboard" />
       <h1 className="text-2xl font-bold text-ink-900">Permission Templates</h1>
       <p className="mt-1 text-sm text-ink-500">
-        A reusable action-toggle matrix. Submit Timesheet and Submit DCR are mutually exclusive by design.
+        A reusable action-toggle matrix. Capability flags must also be enabled on the employee.
       </p>
+      {loadError && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">Could not load permission templates: {loadError}</p>}
 
       <form onSubmit={add} className="card mt-6 space-y-4">
         <div>
@@ -113,6 +102,7 @@ export default function PermissionTemplatesPage() {
             </div>
           </fieldset>)}
         </div>
+        {saveError && <p className="text-sm text-red-600">Could not create the template: {saveError}</p>}
         <button className="btn-primary">Save Template</button>
       </form>
 

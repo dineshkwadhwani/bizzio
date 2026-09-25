@@ -2,13 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
+import { findPaymentAccount } from "@/lib/finance-ledger";
 
 const SalaryPaymentSchema = z.object({
   employee_id: z.string().min(1),
   paid_for_period: z.string().min(1),
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
   reference_number: z.string().optional().or(z.literal("")),
+  attachment_path: z.string().trim().nullable().optional(),
+  attachment_name: z.string().trim().nullable().optional(),
   payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.coerce.number().min(0).optional()
 });
@@ -20,7 +22,7 @@ function signedChange(entryType: string, accountType: string, amount: number) {
 
 export async function GET(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_salary");
     const supabase = createClient();
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("mode");
@@ -140,7 +142,7 @@ async function parsePayload(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_salary");
     const raw = await parsePayload(request);
     const parsed = SalaryPaymentSchema.safeParse(raw);
 
@@ -207,73 +209,46 @@ export async function POST(request: Request) {
     const { data: paymentAccount, error: paymentAccountError } = await findPaymentAccount(supabase, companyId, parsed.data.payment_mode);
     if (paymentAccountError || !paymentAccount) return NextResponse.json({ error: "The selected payment account is missing or inactive." }, { status: 400 });
     const description = `Salary paid for ${employee.name} — ${parsed.data.paid_for_period}`;
-    const transactionEventId = crypto.randomUUID();
-    const accrualPosting = await createBalancedJournal(supabase, {
-      companyId,
-      lines: [
-        { accountHeadId: salariesHead.id, amount, entryType: "debit", label: "Salary expense" },
-        { accountHeadId: employee.salary_payable_account_head_id, amount, entryType: "credit", label: "Salary payable — employee" }
-      ],
-      paymentMode: null,
-      referenceNumber: parsed.data.reference_number?.trim() || null,
-      description,
-      entryDate: parsed.data.payment_date,
-      createdBy: guard.employee.id,
-      sourceType: "salary_paid",
-      sourceId: employee.id,
-      transactionEventId,
-      eventType: "salary_payment"
-    });
-    if (accrualPosting.error || !accrualPosting.data?.length) return NextResponse.json({ error: accrualPosting.error?.message ?? "Could not create salary accrual journal entry." }, { status: 500 });
-
-    const paymentPosting = await createBalancedJournal(supabase, {
-      companyId,
-      lines: [
-        { accountHeadId: employee.salary_payable_account_head_id, amount, entryType: "debit", label: "Salary payable — employee" },
-        { accountHeadId: paymentAccount.id, amount, entryType: "credit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }
-      ],
-      paymentMode: parsed.data.payment_mode,
-      referenceNumber: parsed.data.reference_number?.trim() || null,
-      description,
-      entryDate: parsed.data.payment_date,
-      createdBy: guard.employee.id,
-      sourceType: "salary_paid",
-      sourceId: employee.id,
-      transactionEventId,
-      eventType: "salary_payment"
-    });
-    if (paymentPosting.error || !paymentPosting.data?.length) {
-      await supabase.from("ledger_entries").delete().eq("journal_id", accrualPosting.journalId);
-      return NextResponse.json({ error: paymentPosting.error?.message ?? "Could not create salary payment journal entry." }, { status: 500 });
-    }
-
-    const ledgerEntries = [...accrualPosting.data, ...paymentPosting.data];
-
-    const { data: salaryPayment, error: paymentError } = await supabase
-      .from("salary_payments")
-      .insert({
-        company_id: companyId,
+    const accrualJournalId = crypto.randomUUID();
+    const paymentJournalId = crypto.randomUUID();
+    const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
+      p_operation: "salary_payment",
+      p_company_id: companyId,
+      p_actor_employee_id: guard.employee.id,
+      p_event_type: "salary_payment",
+      p_event_date: parsed.data.payment_date,
+      p_description: description,
+      p_reference_number: parsed.data.reference_number?.trim() || null,
+      p_payment_mode: parsed.data.payment_mode,
+      p_source_id: employee.id,
+      p_payload: {
         employee_id: employee.id,
-        ledger_entry_id: paymentPosting.data[1]?.id ?? paymentPosting.data[0].id,
-        journal_id: paymentPosting.journalId,
-        accrual_journal_id: accrualPosting.journalId,
         amount,
-        payment_mode: parsed.data.payment_mode,
-        reference_number: parsed.data.reference_number?.trim() || null,
         paid_for_period: parsed.data.paid_for_period,
         paid_at: `${parsed.data.payment_date}T00:00:00.000Z`,
-        transaction_event_id: transactionEventId,
-        paid_by: guard.employee.id
-      })
-      .select("*")
-      .single();
+        accrual_journal_id: accrualJournalId,
+        payment_journal_id: paymentJournalId
+      },
+      p_postings: [
+        { journal_id: accrualJournalId, payment_mode: null, source_type: "salary_paid", source_id: employee.id, lines: [
+          { account_head_id: salariesHead.id, amount, entry_type: "debit", label: "Salary expense" },
+          { account_head_id: employee.salary_payable_account_head_id, amount, entry_type: "credit", label: "Salary payable — employee" }
+        ]},
+        { journal_id: paymentJournalId, source_type: "salary_paid", source_id: employee.id, lines: [
+          { account_head_id: employee.salary_payable_account_head_id, amount, entry_type: "debit", label: "Salary payable — employee" },
+          { account_head_id: paymentAccount.id, amount, entry_type: "credit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" }
+        ]}
+      ],
+      p_attachment_path: parsed.data.attachment_path?.trim() || null,
+      p_attachment_name: parsed.data.attachment_name?.trim() || null
+    });
+    if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message ?? "Could not post salary payment." }, { status: 500 });
 
-    if (paymentError) {
-      await supabase.from("ledger_entries").delete().in("journal_id", [accrualPosting.journalId, paymentPosting.journalId]);
-      return NextResponse.json({ error: paymentError.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ salaryPayment, ledgerEntries }, { status: 201 });
+    const [{ data: salaryPayment }, { data: ledgerEntries }] = await Promise.all([
+      supabase.from("salary_payments").select("*").eq("company_id", companyId).eq("transaction_event_id", atomicResult.transaction_event_id).single(),
+      supabase.from("ledger_entries").select("*").eq("company_id", companyId).eq("transaction_event_id", atomicResult.transaction_event_id).order("created_at")
+    ]);
+    return NextResponse.json({ salaryPayment, ledgerEntries: ledgerEntries ?? [] }, { status: 201 });
   } catch (error) {
     return error as Response;
   }

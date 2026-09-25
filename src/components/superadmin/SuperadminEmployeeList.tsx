@@ -20,9 +20,14 @@ type Employee = {
   status: string;
   is_manager: boolean;
   is_director: boolean;
+  hierarchy_role?: string | null;
   is_finance: boolean;
   finance_scope: string | null;
   is_hr: boolean;
+  is_software_engineer?: boolean;
+  is_sales?: boolean;
+  is_operations?: boolean;
+  is_support?: boolean;
   departments?: Relation;
   titles?: Relation;
   reporting_manager?: Relation;
@@ -101,10 +106,13 @@ export function SuperadminEmployeeList({ employees }: { employees: Employee[] })
               <Detail label="Reporting Manager" value={relationName(selected.reporting_manager) ?? "— (root)"} />
               <Detail label="Status" value={selected.status} />
               <Detail label="Roles" value={[
-                selected.is_manager && "Manager",
-                selected.is_director && "Director",
+                selected.hierarchy_role ?? (selected.reporting_manager ? (selected.is_director ? "Director" : selected.is_manager ? "Manager" : "Employee") : "CEO"),
                 selected.is_finance && `Finance${selected.finance_scope ? ` (${selected.finance_scope})` : ""}`,
-                selected.is_hr && "HR"
+                selected.is_hr && "HR",
+                selected.is_operations && "Operations",
+                selected.is_support && "Support",
+                selected.is_software_engineer && "Software Engineer",
+                selected.is_sales && "Sales"
               ].filter(Boolean).join(", ") || "None"} />
             </dl>
 

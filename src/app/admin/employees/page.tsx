@@ -12,7 +12,7 @@ export default async function EmployeesPage({
   const supabase = createClient();
   let query = supabase
     .from("employees")
-    .select("id, name, email, employee_code, status, is_manager, is_finance, is_hr, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
+    .select("id, name, email, employee_code, status, hierarchy_role, is_manager, is_finance, is_hr, is_software_engineer, is_sales, is_operations, is_support, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
     .order("name");
 
   if (searchParams.q) query = query.ilike("name", `%${searchParams.q}%`);
@@ -49,7 +49,7 @@ export default async function EmployeesPage({
               <p><span className="text-ink-400">Department / Title:</span> {e.departments?.name ?? "—"} / {e.titles?.name ?? "—"}</p>
               <p><span className="text-ink-400">Manager:</span> {e.reporting_manager?.name ?? "— (root)"}</p>
             </div>
-            <div className="mt-3 flex flex-wrap gap-1">{e.is_manager && <span className="badge bg-pastel-sky text-ink-700">Manager</span>}{e.is_finance && <span className="badge bg-pastel-mint text-ink-700">Finance</span>}{e.is_hr && <span className="badge bg-pastel-lilac text-ink-700">HR</span>}</div>
+            <div className="mt-3 flex flex-wrap gap-1"><span className="badge bg-pastel-sky text-ink-700">{e.hierarchy_role ?? (e.reporting_manager ? (e.is_director ? "Director" : e.is_manager ? "Manager" : "Employee") : "CEO")}</span>{e.is_finance && <span className="badge bg-pastel-mint text-ink-700">Finance</span>}{e.is_hr && <span className="badge bg-pastel-lilac text-ink-700">HR</span>}{e.is_operations && <span className="badge bg-pastel-sky text-ink-700">Operations</span>}{e.is_support && <span className="badge bg-pastel-lemon text-ink-700">Support</span>}{e.is_software_engineer && <span className="badge bg-pastel-sky text-ink-700">Software Engineer</span>}{e.is_sales && <span className="badge bg-pastel-lemon text-ink-700">Sales</span>}</div>
           </Link>
         ))}
         {!employees?.length && <div className="card py-8 text-center text-ink-400">No employees yet.</div>}

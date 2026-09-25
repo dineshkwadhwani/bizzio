@@ -189,9 +189,14 @@ create table employees (
   salary_payable_account_head_id uuid,
   is_manager              boolean not null default false,
   is_director             boolean not null default false,
+  hierarchy_role          text check (hierarchy_role in ('employee', 'manager', 'director', 'ceo')),
   is_finance              boolean not null default false,
   finance_scope           finance_scope,
   is_hr                   boolean not null default false,
+  is_software_engineer    boolean not null default false,
+  is_sales                boolean not null default false,
+  is_operations           boolean not null default false,
+  is_support              boolean not null default false,
   hr_screens              jsonb default '[]'::jsonb,
   permission_template_id  uuid references permission_templates(id),
   permission_overrides    jsonb default '{}'::jsonb,
@@ -282,6 +287,7 @@ create table leave_requests (
 -- Shared approval engine — reused by Leave, Timesheet, Expense (Module 3/4/5, main spec §7)
 create table approval_steps (
   id                   uuid primary key default gen_random_uuid(),
+  company_id           uuid references companies(id) on delete cascade,
   entity_type          approval_entity not null,
   entity_id            uuid not null,
   level                smallint not null,
@@ -614,6 +620,8 @@ create table purchase_invoice_payments (
   amount numeric(14,2) not null check (amount > 0),
   paid_by uuid references employees(id),
   paid_at date not null default current_date,
+  attachment_path text,
+  attachment_name text,
   journal_id uuid,
   transaction_event_id uuid,
   created_at timestamptz not null default now()
@@ -758,7 +766,9 @@ create table expense_payments (
   bank_statement_row_id uuid,
   reimbursement_journal_id uuid,
   notes            text,
-  transaction_event_id uuid references transaction_events(id)
+  transaction_event_id uuid references transaction_events(id),
+  attachment_path text,
+  attachment_name text
 );
 
 create table ledger_entries (
@@ -791,6 +801,8 @@ create table bank_statement_imports (
   company_id  uuid not null references companies(id) on delete cascade,
   batch_name  text not null,
   file_url    text,
+  attachment_path text,
+  attachment_name text,
   uploaded_by uuid references employees(id),
   uploaded_at timestamptz not null default now()
 );
@@ -1204,7 +1216,8 @@ declare
     'quotations','quotation_line_items','sales_orders','so_line_items','invoices',
     'invoice_line_items','purchase_invoices','purchase_invoice_line_items','purchase_invoice_payments','receipts','expense_claims','expense_line_items',
     'expense_payments','transaction_events','ledger_entries','bank_statement_imports','bank_statement_rows',
-    'salary_payments','customer_advances','customer_advance_applications','document_sequences'
+    'salary_payments','customer_advances','customer_advance_applications','document_sequences',
+    'purchase_order_payments','invoice_attachments','standalone_receipts'
   ];
 begin
   foreach t in array tenant_tables loop

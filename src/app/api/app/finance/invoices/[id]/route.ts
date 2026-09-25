@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { createBalancedJournal, ensureInvoiceIssuedJournal } from "@/lib/finance-ledger";
+import { collectTransactionAttachmentRefs, removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
+import { canManageSourceDocument } from "@/lib/transaction-access";
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -45,7 +47,7 @@ function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: nu
 
 export async function GET(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const supabase = createClient();
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
@@ -82,7 +84,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const parsed = UpdateSchema.safeParse(await request.json());
 
     if (!parsed.success) {
@@ -99,6 +101,14 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     if (existingError || !existing) {
       return NextResponse.json({ error: existingError?.code === "PGRST116" ? "Invoice not found" : existingError?.message || "Invoice not found" }, { status: existingError?.code === "PGRST116" ? 404 : 500 });
+    }
+
+    const [{ data: receipts }, { data: advanceApplications }] = await Promise.all([
+      supabase.from("receipts").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1),
+      supabase.from("customer_advance_applications").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1)
+    ]);
+    if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: existing.created_by, moneyPosted: Boolean(receipts?.length || advanceApplications?.length) })) {
+      return NextResponse.json({ error: "Only the creator may edit an unpaid invoice. Paid or applied invoices require a finance manager." }, { status: 403 });
     }
 
     const customerChanged = parsed.data.customer_id !== undefined && parsed.data.customer_id !== existing.customer_id;
@@ -129,10 +139,6 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .limit(1);
 
     if ((parsed.data.lines || customerChanged) && existing.status === "reviewed" && existingIssueLines?.length) {
-      const [{ data: receipts }, { data: advanceApplications }] = await Promise.all([
-        supabase.from("receipts").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1),
-        supabase.from("customer_advance_applications").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1)
-      ]);
       if (receipts?.length || advanceApplications?.length) {
         return NextResponse.json({ error: "Line items cannot be changed after a receipt or advance has been posted against this invoice." }, { status: 400 });
       }
@@ -268,28 +274,30 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireOperations("operations_sales_invoices");
     const supabase = createClient();
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
-      .select("id, status, so_id")
+      .select("id, status, so_id, created_by")
       .eq("id", params.id)
       .eq("company_id", guard.employee.company_id)
       .single();
     if (invoiceError || !invoice) return NextResponse.json({ error: "Invoice not found." }, { status: 404 });
-    if (invoice.status === "paid") return NextResponse.json({ error: "Paid invoices cannot be deleted." }, { status: 400 });
-
     const [{ data: receipts }, { data: advances }, { data: issueEntries }] = await Promise.all([
       supabase.from("receipts").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1),
       supabase.from("customer_advance_applications").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1),
       supabase.from("ledger_entries").select("journal_id, transaction_event_id").eq("company_id", guard.employee.company_id).eq("source_type", "invoice_issued").eq("source_id", params.id)
     ]);
+    if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: invoice.created_by, moneyPosted: Boolean(receipts?.length || advances?.length) })) {
+      return NextResponse.json({ error: "Only the creator may delete an unpaid invoice. Paid or applied invoices require a finance manager." }, { status: 403 });
+    }
     if (receipts?.length || advances?.length) {
       return NextResponse.json({ error: "This invoice cannot be deleted because a receipt or customer advance has been posted against it." }, { status: 400 });
     }
 
     const journalIds = [...new Set((issueEntries || []).map((entry: any) => entry.journal_id).filter(Boolean))];
     const eventIds = [...new Set((issueEntries || []).map((entry: any) => entry.transaction_event_id).filter(Boolean))];
+    const attachmentRefs = (await Promise.all(journalIds.map((journalId) => collectTransactionAttachmentRefs(supabase, guard.employee.company_id, journalId)))).flat();
     if (journalIds.length) {
       const { error } = await supabase.from("ledger_entries").delete().eq("company_id", guard.employee.company_id).in("journal_id", journalIds);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -299,6 +307,7 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
 
     const { error: deleteError } = await supabase.from("invoices").delete().eq("id", params.id).eq("company_id", guard.employee.company_id);
     if (deleteError) return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    await removeUnreferencedAttachments(supabase, guard.employee.company_id, attachmentRefs);
     return NextResponse.json({ success: true });
   } catch (error) {
     return error as Response;

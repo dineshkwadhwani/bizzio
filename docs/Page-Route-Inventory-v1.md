@@ -1,7 +1,11 @@
 # Page / Route Inventory (v1)
 **Next.js App Router** | Companion to: Database-Schema-v1.md + all Module specs
 
-Convention: routes grouped by audience. Employee-facing routes under `/app/*` are shared by all employees but individual nav items are conditionally rendered based on `permission_overrides` / `permission_template` toggles (Module 2 §6) and special flags (`is_manager`, `is_finance`, `is_hr`).
+Convention: routes grouped by audience. Employee-facing routes under `/app/*`
+are shared by all employees, but navigation is conditionally rendered from the
+company package, employee capabilities, hierarchy role, and canonical
+Permission Template actions. Navigation is not a security boundary; API/page
+guards re-check access.
 
 ---
 
@@ -99,7 +103,7 @@ Shell: bottom nav on mobile / side nav on desktop. Items conditionally shown per
 | `/app/leave/[id]` | Detail, cancellation action |
 | `/app/leave/balance` | My leave balance by type |
 
-### 4.3 If `is_manager = true`
+### 4.3 If `hierarchy_role` is `manager`, `director`, or `ceo`
 | Route | Purpose |
 |---|---|
 | `/app/approvals` | Pending approvals inbox — leave, timesheet, expense claims awaiting this manager (unified queue) |
@@ -129,30 +133,37 @@ Shell: bottom nav on mobile / side nav on desktop. Items conditionally shown per
 | `/app/expenses/new` | New claim — add line items (category/amount/date/receipt/notes), save Draft or Submit |
 | `/app/expenses/[id]` | Claim detail — edit if Draft/Rejected, view approval trail |
 
-### 4.7 If `is_finance = true` (Finance Executive — Module 6)
+### 4.7 Operations, Sales and Finance workspaces (Module 6)
 | Route | Purpose |
 |---|---|
 | `/app/finance/dashboard` | Finance home: claims Ready for Payment, Pay Salary shortcuts, Unpaid Invoices summary |
-| `/app/finance/vendors` | Vendor list |
+| `/app/finance/vendors` | Vendor list — Operations permission |
 | `/app/finance/vendors/new` / `/[id]` | Create/edit vendor (auto-creates Party Account) |
-| `/app/finance/customers` | Customer list |
+| `/app/finance/customers` | Customer list — Operations permission |
 | `/app/finance/customers/new` / `/[id]` | Create/edit customer (auto-creates Party Account) |
-| `/app/finance/po` | Purchase Order list |
+| `/app/finance/po` | Purchase Order list — Operations permission |
 | `/app/finance/po/new` | Create PO — line items, GST, Review screen |
 | `/app/finance/po/[id]` | PO detail, "Send" action |
-| `/app/finance/quotations` | Quotation list |
+| `/app/finance/purchase-invoices` | Purchase Invoice list — Operations permission; includes Edit actions |
+| `/app/finance/purchase-invoices/new` | Create Purchase Invoice manually or from a Purchase Order, with supporting document upload and line totals |
+| `/app/finance/purchase-invoices/[id]` | Purchase Invoice detail, attachment links, payment history, and vendor payment form |
+| `/app/finance/purchase-invoices/[id]/edit` | Edit vendor, dates, lines, GST, supporting document, or delete the existing attachment; recalculates the linked ledger posting |
+| `/app/finance/payments` | Make Payment list and entry point |
+| `/app/finance/payments/new` | Payment against Purchase Invoice, Purchase Order, or standalone expense; supports payment reference documents |
+| `/app/finance/quotations` | Quotation list — Sales permission |
 | `/app/finance/quotations/new` | Create Quotation |
 | `/app/finance/quotations/[id]` | Detail, Send action, mark Accepted/Rejected, "Convert to Sales Order" (if Accepted) |
-| `/app/finance/sales-orders` | Sales Order list |
+| `/app/finance/sales-orders` | Sales Order list — Operations permission |
 | `/app/finance/sales-orders/[id]` | Detail, Send action, "Generate Invoice" |
-| `/app/finance/invoices` | Invoice list |
+| `/app/finance/invoices` | Invoice list — Operations permission |
 | `/app/finance/invoices/[id]` | Detail, Send action, "Create Receipt" |
-| `/app/finance/expenses-adhoc` | Ad-hoc Expense / Other Income entry list |
+| `/app/finance/receive-payments` | Receive invoice payments, allocate receipts, and record customer advances |
+| `/app/finance/expenses-adhoc` | Ad-hoc Expense / Other Income entry list — Finance permission |
 | `/app/finance/expenses-adhoc/new` | New ad-hoc entry (account head or party account, payment mode/reference, isAccountable) |
-| `/app/finance/bank-import` | Import batches list |
+| `/app/finance/bank-import` | Import batches list — Finance permission |
 | `/app/finance/bank-import/new` | Upload Excel |
 | `/app/finance/bank-import/[batchId]` | Staging table — categorize, bulk-assign, post/ignore rows |
-| `/app/finance/salary` | Pay Salary screen — employee list with Payable Salary + Pay button |
+| `/app/finance/salary` | Pay Salary screen — Finance permission |
 | `/app/finance/expenses/approvals` | Expense claims Ready for Payment queue (mark Paid) |
 | `/app/finance/account-head-requests` | Request New Account Head form + status of past requests |
 | `/app/finance/reports/balance-sheet` | Balance Sheet |
@@ -160,6 +171,8 @@ Shell: bottom nav on mobile / side nav on desktop. Items conditionally shown per
 | `/app/finance/reports/ledger/[accountHeadId]` | Ledger statement per head (incl. Party Account statements) |
 | `/app/finance/reports/expense` | Expense report by category/department |
 | `/app/finance/reports/unpaid-invoices` | Unpaid Invoices (aging) |
+| `/app/finance/reports/transactions` | Grouped Transaction Report with filters, debit/credit totals, balance difference, attachment links, and supported edit links |
+| `/app/finance/reports/transactions/edit` | Edit supported transaction metadata and attach/delete supporting documents; protected source journal types remain non-editable |
 
 ### 4.8 If `is_hr = true` (subset of Company Admin routes, scoped by `hr_screens`)
 Reuses the relevant `/admin/*` routes from §3, gated per the specific screens Company Admin granted (holiday calendar, leave type config, employee onboarding/bulk upload, department management) — same components, mounted under `/app/hr/*` or directly linking into `/admin/*` with a permission check rather than duplicating routes. **Recommendation:** implement as shared components mounted at both `/admin/*` (Company Admin, full access) and reused for HR employees with a scoped nav — avoids duplicating screens.
@@ -190,12 +203,15 @@ Reuses the relevant `/admin/*` routes from §3, gated per the specific screens C
 |---|---|
 | `/superadmin/*` | `role = 'superadmin'` |
 | `/admin/*` | `role = 'company_admin'` OR (`role = 'employee'` AND `is_hr = true` AND screen is in `hr_screens`) OR SuperAdmin in Manage-as-Admin mode |
-| `/app/finance/*` | `is_finance = true`, further scoped by `finance_scope` (department vs company-wide) at the query layer |
-| `/app/timesheet/*` | `submit_timesheet` toggle enabled |
-| `/app/dcr/*` | `submit_dcr` toggle enabled |
-| `/app/expenses/*` (raise) | `raise_expense` toggle enabled |
-| `/app/approvals`, team reports | `is_manager = true` |
-| All `/app/*`, `/admin/*` | Company's relevant feature flag must be enabled (Module 7 §3) — e.g., `/app/finance/*` entirely hidden if `accounting_vendor_po` + `accounting_customer_invoice` flags are both off for that company (Basic plan) |
+| Operations routes | Active Finance module + `is_operations` + the relevant `operations_*` permission |
+| Sales routes | Active Finance/DCR module as applicable + `is_sales` + the relevant `sales_*` permission |
+| Finance routes | Active Finance module + `is_finance` + the relevant `finance_*` permission |
+| `/app/timesheet/*` | Active Timesheets module + `is_software_engineer` + `submit_timesheet` |
+| `/app/dcr/*` | Active DCR module + `is_sales` + `submit_dcr` |
+| `/app/expenses/*` (raise) | Active Expense module + `raise_expense` |
+| `/app/approvals`, team reports | Active employee with manager/director/CEO hierarchy role and the relevant approval/report permission |
+| Finance report routes | Active Finance module plus the individual `view_finance_*` report permission |
+| All protected routes | Authenticated active user, active company/plan where applicable, and tenant-scoped queries/RLS |
 
 ---
 

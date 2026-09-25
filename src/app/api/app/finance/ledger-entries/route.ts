@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { requireFinance } from "@/lib/auth-guard";
+import { requireFinance, requireRole } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
-import { effectiveToggles } from "@/lib/permissions";
+import { collectTransactionAttachmentRefs, removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
+import { effectiveToggles, hasPermission, moduleEnabled } from "@/lib/permissions";
+import { isFinanceManager } from "@/lib/transaction-access";
 
 const LedgerEntrySchema = z.object({
   entry_type: z.enum(["expense", "income", "opening_balance", "gst_payment"]),
@@ -42,10 +44,11 @@ const ReceiptEditSchema = z.object({
 
 export async function GET(request: Request) {
   try {
-    const guard = await requireFinance();
-    const supabase = createClient();
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode");
+    const journalId = url.searchParams.get("journal_id");
+    const guard = await requireFinance(mode === "account-options" ? "finance_adhoc_entries" : journalId ? "edit_transactions" : "view_finance_transaction_report");
+    const supabase = createClient();
     const includeBalanceAccounts = url.searchParams.get("include_balance_accounts") === "true";
     const companyId = guard.employee.company_id;
 
@@ -139,7 +142,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ options: optionList });
     }
 
-    const journalId = url.searchParams.get("journal_id");
     const includeAllSources = url.searchParams.get("include_all") === "true";
     if (journalId) {
       const { data: permissionEmployee } = await supabase
@@ -172,25 +174,75 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const guard = await requireFinance();
-    const { data: permissionEmployee } = await guard.supabase
+    const roleGuard = await requireRole("employee");
+    const { data: employee } = await roleGuard.supabase
       .from("employees")
-      .select("permission_overrides, permission_templates(toggles)")
-      .eq("id", guard.employee.id)
+      .select("id, user_id, company_id, is_finance, is_operations, status, left_at, permission_overrides, permission_templates(toggles)")
+      .eq("user_id", roleGuard.user.id)
       .single();
-    const permissionTemplate = Array.isArray((permissionEmployee as any)?.permission_templates)
-      ? (permissionEmployee as any).permission_templates[0]
-      : (permissionEmployee as any)?.permission_templates;
-    const toggles = effectiveToggles(permissionTemplate?.toggles, (permissionEmployee as any)?.permission_overrides);
-    if (toggles.edit_transactions !== true) return NextResponse.json({ error: "Edit Transactions permission is required." }, { status: 403 });
+    if (!employee || employee.status !== "active" || employee.left_at) return NextResponse.json({ error: "Active employee access is required." }, { status: 403 });
+    const permissionTemplate = Array.isArray((employee as any).permission_templates)
+      ? (employee as any).permission_templates[0]
+      : (employee as any).permission_templates;
+    const toggles = effectiveToggles(permissionTemplate?.toggles, employee.permission_overrides);
+    const { data: company } = await roleGuard.supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
+    const { data: plan } = company?.plan_id
+      ? await roleGuard.supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle()
+      : { data: null };
+    if (!plan?.is_active || !moduleEnabled((plan.feature_bundle ?? {}) as Record<string, any>, "finance")) {
+      return NextResponse.json({ error: "This company does not have access to the Finance module." }, { status: 403 });
+    }
+    const financeManager = isFinanceManager(employee as any);
     const body = await request.json();
     const journalId = typeof body.journal_id === "string" ? body.journal_id : "";
     if (!journalId) return NextResponse.json({ error: "A valid journal and entry details are required." }, { status: 400 });
 
     const supabase = createClient();
-    const companyId = guard.employee.company_id;
+    const companyId = employee.company_id;
     const { data: lines, error: linesError } = await supabase.from("ledger_entries").select("id, source_id, source_type, journal_line, entry_type, account_head_id, amount").eq("company_id", companyId).eq("journal_id", journalId);
     if (linesError || !lines?.length) return NextResponse.json({ error: "The journal could not be found." }, { status: 404 });
+
+    const sourceType = String(lines[0].source_type);
+    if (!financeManager) {
+      let creatorId: string | null = null;
+      let moneyPosted = false;
+      let requiredPermission: string | null = null;
+      const sourceId = lines.find((line: any) => line.source_id)?.source_id;
+
+      if (sourceType === "invoice_issued" && sourceId) {
+        requiredPermission = "operations_sales_invoices";
+        const [{ data: invoice }, { data: receipts }, { data: applications }] = await Promise.all([
+          supabase.from("invoices").select("created_by").eq("id", sourceId).eq("company_id", companyId).single(),
+          supabase.from("receipts").select("id").eq("invoice_id", sourceId).eq("company_id", companyId).limit(1),
+          supabase.from("customer_advance_applications").select("id").eq("invoice_id", sourceId).eq("company_id", companyId).not("journal_id", "is", null).limit(1)
+        ]);
+        creatorId = invoice?.created_by || null;
+        moneyPosted = Boolean(receipts?.length || applications?.length);
+      } else if (sourceType === "purchase_invoice_issued" && sourceId) {
+        requiredPermission = "operations_purchase_invoices";
+        const [{ data: invoice }, { data: payments }] = await Promise.all([
+          supabase.from("purchase_invoices").select("created_by").eq("id", sourceId).eq("company_id", companyId).single(),
+          supabase.from("purchase_invoice_payments").select("id").eq("purchase_invoice_id", sourceId).eq("company_id", companyId).limit(1)
+        ]);
+        creatorId = invoice?.created_by || null;
+        moneyPosted = Boolean(payments?.length);
+      }
+
+      if (!requiredPermission || !hasPermission(toggles, requiredPermission) || creatorId !== employee.id || moneyPosted) {
+        return NextResponse.json({ error: "Only the creator may edit an unpaid sales or purchase invoice. Transactions involving money require a finance manager." }, { status: 403 });
+      }
+    }
+
+    // A document can be added to any existing journal without changing its
+    // accounting lines. Handle this before source-type-specific validation.
+    if (typeof body.attachment_path === "string" && body.attachment_path.trim()) {
+      const { error: attachmentUpdateError } = await supabase.from("ledger_entries").update({
+        attachment_path: body.attachment_path.trim(),
+        attachment_name: typeof body.attachment_name === "string" ? body.attachment_name.trim() || null : null
+      }).eq("company_id", companyId).eq("journal_id", journalId);
+      if (attachmentUpdateError) return NextResponse.json({ error: attachmentUpdateError.message }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
 
     const isBankImport = lines.every((line: any) => line.source_type === "bank_import_row");
     if (isBankImport) {
@@ -276,14 +328,13 @@ export async function PATCH(request: Request) {
         const { data: payment } = await supabase.from("purchase_invoice_payments").select("id,purchase_invoice_id,amount,paid_at").eq("id", sourceId).eq("company_id", companyId).single();
         if (!payment) return NextResponse.json({ error: "The purchase invoice payment could not be found." }, { status: 404 });
         const { data: existingPayments } = await supabase.from("purchase_invoice_payments").select("id,amount").eq("purchase_invoice_id", payment.purchase_invoice_id).eq("company_id", companyId);
-        const otherPaid = (existingPayments ?? []).filter((row: any) => row.id !== payment.id).reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0);
         const { data: invoice } = await supabase.from("purchase_invoices").select("total_amount").eq("id", payment.purchase_invoice_id).eq("company_id", companyId).single();
-        if (!invoice || otherPaid + parsedPurchase.data.amount > Number(invoice.total_amount) + 0.005) return NextResponse.json({ error: "The revised payment exceeds the purchase invoice balance." }, { status: 400 });
+        if (!invoice) return NextResponse.json({ error: "The purchase invoice could not be found." }, { status: 404 });
         const { error: updateError } = await supabase.from("ledger_entries").update({ ...common, amount: Number(parsedPurchase.data.amount.toFixed(2)) }).eq("company_id", companyId).eq("journal_id", journalId);
         if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
         const { error: paymentError } = await supabase.from("purchase_invoice_payments").update({ amount: Number(parsedPurchase.data.amount.toFixed(2)), paid_at: parsedPurchase.data.entry_date, reference_number: common.reference_number }).eq("id", payment.id).eq("company_id", companyId);
         if (paymentError) return NextResponse.json({ error: paymentError.message }, { status: 500 });
-        const paidTotal = otherPaid + Number(parsedPurchase.data.amount);
+        const paidTotal = (existingPayments ?? []).filter((row: any) => row.id !== payment.id).reduce((sum: number, row: any) => sum + Number(row.amount || 0), 0) + Number(parsedPurchase.data.amount);
         await supabase.from("purchase_invoices").update({ status: paidTotal >= Number(invoice.total_amount) - 0.005 ? "paid" : "partially_paid" }).eq("id", payment.purchase_invoice_id).eq("company_id", companyId);
       } else {
         const { data: invoice } = await supabase.from("purchase_invoices").select("id").eq("id", sourceId).eq("company_id", companyId).single();
@@ -328,6 +379,25 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: true });
     }
 
+    // Some legacy/manual journals cannot change their accounting fields here,
+    // but their descriptive fields and supporting document can still be
+    // corrected safely without changing the balanced journal lines.
+    const supportsGenericEdit = lines.every((line: any) => ["adhoc_expense", "adhoc_income", "opening_balance"].includes(line.source_type));
+    const parsedDetailsOnly = ReceiptEditSchema.safeParse(body);
+    if (!supportsGenericEdit && parsedDetailsOnly.success) {
+      const common = {
+        entry_date: parsedDetailsOnly.data.entry_date,
+        reference_number: parsedDetailsOnly.data.reference_number?.trim() || null,
+        description: (parsedDetailsOnly.data.description?.trim() || "Transaction").slice(0, 255),
+        notes: parsedDetailsOnly.data.notes?.trim() || null,
+        attachment_path: parsedDetailsOnly.data.attachment_path?.trim() || null,
+        attachment_name: parsedDetailsOnly.data.attachment_name?.trim() || null
+      };
+      const { error: updateError } = await supabase.from("ledger_entries").update(common).eq("company_id", companyId).eq("journal_id", journalId);
+      if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return NextResponse.json({ success: true });
+    }
+
     const parsed = LedgerEntrySchema.safeParse(body);
     if (!parsed.success || lines.some((line: any) => !["adhoc_expense", "adhoc_income", "opening_balance"].includes(line.source_type))) return NextResponse.json({ error: "This journal type cannot be edited here." }, { status: 400 });
 
@@ -351,7 +421,7 @@ export async function PATCH(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance();
+    const guard = await requireFinance("finance_adhoc_entries");
     const body = await request.json();
     const parsed = LedgerEntrySchema.safeParse(body);
 
@@ -430,6 +500,29 @@ export async function POST(request: Request) {
     });
     if (result.error || !result.data) return NextResponse.json({ error: result.error?.message ?? "Could not create balanced journal entry." }, { status: 500 });
     return NextResponse.json({ entries: result.data, journalId: result.journalId }, { status: 201 });
+  } catch (error) {
+    return error as Response;
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const guard = await requireFinance("edit_transactions");
+    const body = await request.json().catch(() => ({}));
+    const journalId = typeof body.journal_id === "string" ? body.journal_id : "";
+    if (!journalId) return NextResponse.json({ error: "A valid journal is required." }, { status: 400 });
+
+    const attachmentRefs = await collectTransactionAttachmentRefs(guard.supabase, guard.employee.company_id, journalId);
+
+    const { data, error } = await guard.supabase.rpc("delete_finance_transaction", {
+      p_company_id: guard.employee.company_id,
+      p_journal_id: journalId,
+      p_actor_employee_id: guard.employee.id,
+      p_actor_user_id: guard.user.id
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    await removeUnreferencedAttachments(guard.supabase, guard.employee.company_id, attachmentRefs);
+    return NextResponse.json(data ?? { deleted: true });
   } catch (error) {
     return error as Response;
   }
