@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, ensureInvoiceIssuedJournal } from "@/lib/finance-ledger";
+import { ensureInvoiceIssuedJournal } from "@/lib/finance-ledger";
 import { collectTransactionAttachmentRefs, removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
 import { canManageSourceDocument } from "@/lib/transaction-access";
 
@@ -123,7 +123,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (parsed.data.customer_id) {
       const { data: customer, error: customerError } = await supabase
         .from("customers")
-        .select("id")
+        .select("id, party_account_head_id")
         .eq("id", parsed.data.customer_id)
         .eq("company_id", guard.employee.company_id)
         .single();
@@ -137,6 +137,45 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .eq("source_type", "invoice_issued")
       .eq("source_id", params.id)
       .limit(1);
+
+    const { data: currentLineItems } = await supabase
+      .from("invoice_line_items")
+      .select("description, qty, rate, gst_percent, gst_type")
+      .eq("invoice_id", params.id)
+      .eq("company_id", guard.employee.company_id)
+      .order("id");
+
+    if (!parsed.data.advance_application && !(parsed.data.status === "draft" && existingIssueLines?.length) && !((parsed.data.lines || customerChanged) && (receipts?.length || advanceApplications?.length))) {
+      const nextCustomerId = parsed.data.customer_id ?? existing.customer_id;
+      const { data: nextCustomer } = await supabase.from("customers").select("id, party_account_head_id").eq("id", nextCustomerId).eq("company_id", guard.employee.company_id).single();
+      const sourceLines = parsed.data.lines ?? (currentLineItems ?? []);
+      const calculated = sourceLines.map((line: any) => ({ description: line.description.trim(), ...calculateLineAmounts(line) }));
+      const totals = calculated.reduce((sum: any, line: any) => ({ base: sum.base + Number(line.qty) * Number(line.rate), gst: sum.gst + Number(line.cgst_amount) + Number(line.sgst_amount) + Number(line.igst_amount), total: sum.total + Number(line.line_total) }), { base: 0, gst: 0, total: 0 });
+      const nextStatus = parsed.data.status ?? existing.status;
+      let issuePostings: any[] = [];
+      if (nextStatus !== "draft") {
+        const { data: heads } = await supabase.from("account_heads").select("id,name,type").eq("company_id", guard.employee.company_id).eq("is_active", true).in("name", ["Sales Income", "GST Payable"]);
+        const sales = heads?.find((head: any) => head.name === "Sales Income" && head.type === "income");
+        const gst = heads?.find((head: any) => head.name === "GST Payable" && head.type === "liability");
+        if (!nextCustomer?.party_account_head_id || !sales || !gst) return NextResponse.json({ error: "Sales Income, GST Payable, or customer receivable account is missing." }, { status: 400 });
+        issuePostings = [{ source_type: "invoice_issued", event_type: "invoice_issued", entry_date: parsed.data.invoice_date ?? existing.invoice_date, description: `Invoice — ${parsed.data.title ?? existing.title}`, lines: [
+          { account_head_id: nextCustomer.party_account_head_id, amount: Number(totals.total.toFixed(2)), entry_type: "debit", label: "Customer Receivable" },
+          { account_head_id: sales.id, amount: Number(totals.base.toFixed(2)), entry_type: "credit", label: "Sales Income" },
+          { account_head_id: gst.id, amount: Number(totals.gst.toFixed(2)), entry_type: "credit", label: "GST Payable" }
+        ] }];
+      }
+      const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {
+        p_operation: "sales_invoice_edit", p_company_id: guard.employee.company_id, p_actor_employee_id: guard.employee.id, p_document_id: params.id,
+        p_payload: { customer_id: parsed.data.customer_id, title: parsed.data.title, invoice_date: parsed.data.invoice_date, status: parsed.data.status, base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)), attachment_path: parsed.data.attachment_path, attachment_name: parsed.data.attachment_name },
+        p_lines: calculated, p_issue_postings: issuePostings
+      });
+      if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
+      const [{ data: updatedInvoice }, { data: updatedLines }] = await Promise.all([
+        supabase.from("invoices").select("*").eq("id", params.id).eq("company_id", guard.employee.company_id).single(),
+        supabase.from("invoice_line_items").select("*").eq("invoice_id", params.id).eq("company_id", guard.employee.company_id).order("id")
+      ]);
+      return NextResponse.json({ invoice: updatedInvoice, lineItems: updatedLines ?? [] });
+    }
 
     if ((parsed.data.lines || customerChanged) && existing.status === "reviewed" && existingIssueLines?.length) {
       if (receipts?.length || advanceApplications?.length) {
@@ -338,76 +377,21 @@ async function updateAdvanceApplication(
     .single();
   if (!advance) return { error: "The selected customer advance was not found.", status: 404 };
 
-  const { data: previousApplication } = await supabase
-    .from("customer_advance_applications")
-    .select("id")
-    .eq("company_id", companyId)
-    .eq("invoice_id", invoice.id)
-    .limit(1);
-  const previous = previousApplication?.[0] || null;
-  let previousRow: any = null;
-  if (previous) {
-    const { data: loadedPrevious } = await supabase.from("customer_advance_applications").select("id, advance_id, amount, journal_id").eq("id", previous.id).single();
-    previousRow = loadedPrevious;
-    if (previousRow && previousRow.advance_id !== advance.id) return { error: "This invoice already has a different advance applied.", status: 400 };
-    const oldAmount = Number(previousRow?.amount || 0);
-    const requestedAmount = Number(application.amount || 0);
-    if (Math.abs(oldAmount - requestedAmount) <= 0.005 && previousRow?.journal_id) return {};
-    const { data: receipts } = await supabase.from("receipts").select("id").eq("invoice_id", invoice.id).limit(1);
-    if (receipts?.length) return { error: "The advance application cannot be changed after a receipt has been posted.", status: 400 };
-    if (previousRow?.journal_id) {
-      const { error: deleteJournalError } = await supabase.from("ledger_entries").delete().eq("company_id", companyId).eq("journal_id", previousRow.journal_id);
-      if (deleteJournalError) return { error: deleteJournalError.message, status: 500 };
-    }
-    const { error: deleteApplicationError } = await supabase.from("customer_advance_applications").delete().eq("id", previous.id).eq("company_id", companyId);
-    if (deleteApplicationError) return { error: deleteApplicationError.message, status: 500 };
-    if (previousRow?.journal_id) {
-      const { error: decrementError } = await supabase.from("customer_advances").update({ applied_amount: Number((Number(advance.applied_amount || 0) - oldAmount).toFixed(2)) }).eq("id", advance.id).eq("company_id", companyId);
-      if (decrementError) return { error: decrementError.message, status: 500 };
-      advance.applied_amount = Number((Number(advance.applied_amount || 0) - oldAmount).toFixed(2));
-    }
-    if (requestedAmount <= 0.005) {
-      return {};
-    }
-    application.amount = requestedAmount;
-  }
-
-  const remaining = Number(advance.amount) - Number(advance.applied_amount || 0);
-  if (!previous && application.amount <= 0.005) return { error: "The advance amount must be greater than zero.", status: 400 };
-  const availableForApplication = remaining + (previousRow ? Number(previousRow.amount || 0) : 0);
-  if (application.amount > availableForApplication + 0.005) return { error: "The applied amount exceeds the remaining customer advance.", status: 400 };
-  if (application.amount > Number(invoice.total_amount) + 0.005) return { error: "The applied amount cannot exceed the invoice total.", status: 400 };
-
-  if (invoice.status === "draft") {
-    const { error: pendingError } = await supabase.from("customer_advance_applications").insert({ id: crypto.randomUUID(), company_id: companyId, advance_id: advance.id, invoice_id: invoice.id, amount: application.amount, journal_id: null, created_by: employeeId });
-    if (pendingError) return { error: pendingError.message, status: 500 };
-    return {};
-  }
-
-  const issuePosting = await ensureInvoiceIssuedJournal(supabase, { companyId, invoice, createdBy: employeeId });
-  if (issuePosting.error) return { error: issuePosting.error.message || "Could not post the invoice journal.", status: 500 };
-
-  const applicationId = crypto.randomUUID();
-  const applicationPosting = await createBalancedJournal(supabase, {
-    companyId,
-    lines: [
-      { accountHeadId: advance.account_head_id, amount: application.amount, entryType: "debit", label: "Customer Advance Applied" },
-      { accountHeadId: customer.party_account_head_id, amount: application.amount, entryType: "credit", label: "Customer Receivable" }
-    ],
-    paymentMode: null,
-    description: `Advance applied to invoice ${invoice.invoice_number}`,
-    entryDate: invoice.invoice_date,
-    createdBy: employeeId,
-    sourceType: "customer_advance_application",
-    sourceId: applicationId
+  const { error: atomicAdvanceError } = await supabase.rpc("replace_customer_advance_application_atomic", {
+    p_company_id: companyId,
+    p_actor_employee_id: employeeId,
+    p_invoice_id: invoice.id,
+    p_customer_id: invoice.customer_id,
+    p_advance_id: advance.id,
+    p_amount: Number(application.amount || 0),
+    p_invoice_total: Number(invoice.total_amount),
+    p_invoice_status: invoice.status,
+    p_invoice_date: invoice.invoice_date,
+    p_invoice_number: invoice.invoice_number
   });
-  if (applicationPosting.error || !applicationPosting.data?.length) return { error: applicationPosting.error?.message || "Could not post the advance application.", status: 500 };
-
-  const { error: applicationError } = await supabase.from("customer_advance_applications").insert({ id: applicationId, company_id: companyId, advance_id: advance.id, invoice_id: invoice.id, amount: application.amount, journal_id: applicationPosting.journalId, created_by: employeeId });
-  if (applicationError) return { error: applicationError.message, status: 500 };
-  const { error: advanceUpdateError } = await supabase.from("customer_advances").update({ applied_amount: Number((Number(advance.applied_amount || 0) + application.amount).toFixed(2)) }).eq("id", advance.id).eq("company_id", companyId);
-  if (advanceUpdateError) return { error: advanceUpdateError.message, status: 500 };
+  if (atomicAdvanceError) return { error: atomicAdvanceError.message, status: 400 };
   return {};
+
 }
 
 async function finalizeInvoicePosting(supabase: ReturnType<typeof createClient>, companyId: string, employeeId: string, invoice: any) {

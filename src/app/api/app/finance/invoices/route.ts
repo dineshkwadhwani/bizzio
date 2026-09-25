@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, ensureInvoiceIssuedJournal } from "@/lib/finance-ledger";
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -45,41 +44,6 @@ function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: nu
   };
 }
 
-async function getNextInvoiceNumber(supabase: ReturnType<typeof createClient>, companyId: string) {
-  const year = new Date().getFullYear();
-  const { data: sequence, error } = await supabase
-    .from("document_sequences")
-    .select("id, last_number")
-    .eq("company_id", companyId)
-    .eq("doc_type", "invoice")
-    .eq("year", year)
-    .maybeSingle();
-
-  if (error) throw new Error(error.message);
-
-  if (!sequence) {
-    const { data: inserted, error: insertError } = await supabase
-      .from("document_sequences")
-      .insert({ company_id: companyId, doc_type: "invoice", year, last_number: 1 })
-      .select("id, last_number")
-      .single();
-
-    if (insertError) throw new Error(insertError.message);
-    return { invoiceNumber: `INV-${year}-${String(inserted.last_number).padStart(4, "0")}`, sequenceId: inserted.id, nextNumber: inserted.last_number };
-  }
-
-  const nextNumber = Number(sequence.last_number) + 1;
-  const { data: updated, error: updateError } = await supabase
-    .from("document_sequences")
-    .update({ last_number: nextNumber })
-    .eq("id", sequence.id)
-    .select("id, last_number")
-    .single();
-
-  if (updateError) throw new Error(updateError.message);
-
-  return { invoiceNumber: `INV-${year}-${String(nextNumber).padStart(4, "0")}`, sequenceId: updated.id, nextNumber };
-}
 
 export async function GET() {
   try {
@@ -197,108 +161,50 @@ export async function POST(request: Request) {
       advance = advanceRow;
     }
 
-    const { invoiceNumber } = await getNextInvoiceNumber(supabase, companyId);
     const invoiceStatus = parsed.data.status ?? "draft";
 
-    const { data: invoice, error: invoiceError } = await supabase
-      .from("invoices")
-      .insert({
-        company_id: companyId,
-        customer_id: customerId,
-        so_id: soId,
-        title: salesOrderTitle || parsed.data.title,
-        invoice_number: invoiceNumber,
-        invoice_date: parsed.data.invoice_date,
-        status: invoiceStatus,
-        base_amount: Number(totals.base.toFixed(2)),
-        gst_amount: Number(totals.gst.toFixed(2)),
-        total_amount: Number(totals.total.toFixed(2)),
-        sent_at: invoiceStatus === "sent" ? new Date().toISOString() : null,
-        created_by: guard.employee.id
-      })
-      .select("*")
-      .single();
-
-    if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 500 });
-
-    const invoiceLines = lines.map((line) => {
-      const amounts = calculateLineAmounts(line);
-      return {
-        invoice_id: invoice.id,
-        company_id: companyId,
-        description: line.description.trim(),
-        qty: amounts.qty,
-        rate: amounts.rate,
-        gst_percent: amounts.gst_percent,
-        gst_type: amounts.gst_type,
-        cgst_amount: amounts.cgst_amount,
-        sgst_amount: amounts.sgst_amount,
-        igst_amount: amounts.igst_amount,
-        line_total: amounts.line_total
-      };
+    const { data: postingHeads, error: postingHeadsError } = await supabase
+      .from("account_heads")
+      .select("id,name,type")
+      .eq("company_id", companyId)
+      .eq("is_active", true)
+      .in("name", ["Sales Income", "GST Payable"]);
+    if (postingHeadsError) return NextResponse.json({ error: postingHeadsError.message }, { status: 500 });
+    const salesHead = postingHeads?.find((head: any) => head.name === "Sales Income" && head.type === "income");
+    const gstHead = postingHeads?.find((head: any) => head.name === "GST Payable" && head.type === "liability");
+    if (invoiceStatus !== "draft" && (!salesHead || !gstHead)) return NextResponse.json({ error: "Sales Income or GST Payable account is missing." }, { status: 400 });
+    const calculatedLines = lines.map((line: any) => ({ description: line.description.trim(), ...calculateLineAmounts(line) }));
+    const issuePostings = invoiceStatus === "draft" ? [] : [{
+      source_type: "invoice_issued", event_type: "invoice_issued", entry_date: parsed.data.invoice_date,
+      description: `Invoice — ${salesOrderTitle || parsed.data.title}`,
+      lines: [
+        { account_head_id: customer.party_account_head_id, amount: Number(totals.total.toFixed(2)), entry_type: "debit", label: "Customer Receivable" },
+        { account_head_id: salesHead!.id, amount: Number(totals.base.toFixed(2)), entry_type: "credit", label: "Sales Income" },
+        { account_head_id: gstHead!.id, amount: Number(totals.gst.toFixed(2)), entry_type: "credit", label: "GST Payable" }
+      ]
+    }];
+    const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {
+      p_operation: "sales_invoice_create",
+      p_company_id: companyId,
+      p_actor_employee_id: guard.employee.id,
+      p_document_id: null,
+      p_payload: {
+        customer_id: customerId, so_id: soId, title: salesOrderTitle || parsed.data.title,
+        invoice_date: parsed.data.invoice_date, status: invoiceStatus,
+        base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)),
+        sequence_year: new Date(parsed.data.invoice_date).getFullYear()
+      },
+      p_lines: calculatedLines,
+      p_issue_postings: issuePostings,
+      p_advance_application: advance ? { advance_id: advance.id, amount: parsed.data.advance_application!.amount } : null
     });
+    if (atomicError || !atomicResult?.document_id) return NextResponse.json({ error: atomicError?.message || "Could not create the sales invoice atomically." }, { status: 500 });
+    const [{ data: atomicInvoice }, { data: atomicLines }] = await Promise.all([
+      supabase.from("invoices").select("*").eq("id", atomicResult.document_id).eq("company_id", companyId).single(),
+      supabase.from("invoice_line_items").select("*").eq("invoice_id", atomicResult.document_id).eq("company_id", companyId).order("id")
+    ]);
+    return NextResponse.json({ invoice: atomicInvoice, lineItems: atomicLines ?? [] }, { status: 201 });
 
-    const { data: insertedLines, error: linesError } = await supabase
-      .from("invoice_line_items")
-      .insert(invoiceLines)
-      .select();
-
-    if (linesError) {
-      await supabase.from("invoices").delete().eq("id", invoice.id);
-      return NextResponse.json({ error: linesError.message }, { status: 500 });
-    }
-
-    if (soId) {
-      const { error: soUpdateError } = await supabase
-        .from("sales_orders")
-        .update({ status: "invoiced" })
-        .eq("id", soId)
-        .eq("company_id", companyId);
-
-      if (soUpdateError) {
-        await supabase.from("invoices").delete().eq("id", invoice.id);
-        await supabase.from("invoice_line_items").delete().eq("invoice_id", invoice.id);
-        return NextResponse.json({ error: soUpdateError.message }, { status: 500 });
-      }
-    }
-
-    if (invoiceStatus !== "draft") {
-      const issuePosting = await ensureInvoiceIssuedJournal(supabase, { companyId, invoice, createdBy: guard.employee.id });
-      if (issuePosting.error) return NextResponse.json({ error: issuePosting.error.message || "Could not post the invoice journal." }, { status: 500 });
-    }
-
-    if (advance) {
-      if (!customer.party_account_head_id) return NextResponse.json({ error: "Customer receivable account is missing." }, { status: 400 });
-      const applicationId = crypto.randomUUID();
-      if (invoiceStatus === "draft") {
-        const { error: pendingError } = await supabase.from("customer_advance_applications").insert({ id: applicationId, company_id: companyId, advance_id: advance.id, invoice_id: invoice.id, amount: parsed.data.advance_application!.amount, journal_id: null, created_by: guard.employee.id });
-        if (pendingError) return NextResponse.json({ error: pendingError.message }, { status: 500 });
-        return NextResponse.json({ invoice, lineItems: insertedLines ?? [] }, { status: 201 });
-      }
-      const applicationPosting = await createBalancedJournal(supabase, {
-        companyId,
-        lines: [
-          { accountHeadId: advance.account_head_id, amount: parsed.data.advance_application!.amount, entryType: "debit", label: "Customer Advance Applied" },
-          { accountHeadId: customer.party_account_head_id, amount: parsed.data.advance_application!.amount, entryType: "credit", label: "Customer Receivable" }
-        ],
-        paymentMode: null,
-        description: `Advance applied to invoice ${invoice.invoice_number}`,
-        entryDate: invoice.invoice_date,
-        createdBy: guard.employee.id,
-        sourceType: "customer_advance_application",
-        sourceId: applicationId
-      });
-      if (applicationPosting.error || !applicationPosting.data?.length) return NextResponse.json({ error: applicationPosting.error?.message || "Could not post the advance application." }, { status: 500 });
-      const { error: applicationError } = await supabase.from("customer_advance_applications").insert({ id: applicationId, company_id: companyId, advance_id: advance.id, invoice_id: invoice.id, amount: parsed.data.advance_application!.amount, journal_id: applicationPosting.journalId, created_by: guard.employee.id });
-      if (applicationError) return NextResponse.json({ error: applicationError.message }, { status: 500 });
-      const { error: advanceUpdateError } = await supabase.from("customer_advances").update({ applied_amount: Number((Number(advance.applied_amount || 0) + parsed.data.advance_application!.amount).toFixed(2)) }).eq("id", advance.id).eq("company_id", companyId);
-      if (advanceUpdateError) return NextResponse.json({ error: advanceUpdateError.message }, { status: 500 });
-      if (parsed.data.advance_application!.amount >= Number(totals.total) - 0.005) {
-        await supabase.from("invoices").update({ status: "paid" }).eq("id", invoice.id).eq("company_id", companyId);
-      }
-    }
-
-    return NextResponse.json({ invoice, lineItems: insertedLines ?? [] }, { status: 201 });
   } catch (error) {
     return error as Response;
   }

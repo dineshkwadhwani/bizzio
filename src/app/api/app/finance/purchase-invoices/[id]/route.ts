@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { createBalancedJournal, findPaymentAccount } from "@/lib/finance-ledger";
 import { collectTransactionAttachmentRefs, removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
 import { effectiveToggles, hasPermission } from "@/lib/permissions";
 import { canManageSourceDocument } from "@/lib/transaction-access";
@@ -118,87 +117,53 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const { data: inputGst } = await supabase.from("account_heads").select("id").eq("company_id", companyId).eq("name", "Paid GST").eq("type", "asset").eq("is_active", true).single();
     if (gst > 0 && !inputGst) return NextResponse.json({ error: "Paid GST account is missing." }, { status: 400 });
-    const { data: oldJournalLine } = await supabase.from("ledger_entries").select("id,journal_id,transaction_event_id").eq("company_id", companyId).eq("source_type", "purchase_invoice_issued").eq("source_id", params.id).limit(1).maybeSingle();
 
-    const previousAttachmentPath = invoice.attachment_path as string | null;
-    const updates: Record<string, any> = { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, base_amount: base, gst_amount: gst, total_amount: total, status: editedPaidTotal >= total - 0.005 ? "paid" : editedPaidTotal > 0 ? "partially_paid" : "received" };
-    if (parsed.data.remove_attachment) { updates.attachment_path = null; updates.attachment_name = null; }
-    else {
-      if (parsed.data.attachment_path !== undefined) updates.attachment_path = parsed.data.attachment_path?.trim() || null;
-      if (parsed.data.attachment_name !== undefined) updates.attachment_name = parsed.data.attachment_name?.trim() || null;
+    if (!paymentChangesRequested) {
+      const byAccount = new Map<string, number>();
+      calculated.forEach((line) => byAccount.set(line.account_head_id, Number(((byAccount.get(line.account_head_id) || 0) + line.qty * line.rate).toFixed(2))));
+      const issueLines: any[] = Array.from(byAccount.entries()).map(([accountHeadId, amount]) => ({ account_head_id: accountHeadId, amount, entry_type: "debit", label: accountById.get(accountHeadId)?.name || "Expense" }));
+      if (gst > 0 && inputGst) issueLines.push({ account_head_id: inputGst.id, amount: gst, entry_type: "debit", label: "Input GST" });
+      issueLines.push({ account_head_id: vendor.party_account_head_id, amount: total, entry_type: "credit", label: "Vendor Payable" });
+      const nextStatus = editedPaidTotal >= total - 0.005 ? "paid" : editedPaidTotal > 0 ? "partially_paid" : "received";
+      const previousAttachmentPath = invoice.attachment_path as string | null;
+      const nextAttachmentPath = parsed.data.remove_attachment ? null : parsed.data.attachment_path !== undefined ? parsed.data.attachment_path?.trim() || null : previousAttachmentPath;
+      const nextAttachmentName = parsed.data.remove_attachment ? null : parsed.data.attachment_name !== undefined ? parsed.data.attachment_name?.trim() || null : invoice.attachment_name;
+      const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {
+        p_operation: "purchase_invoice_edit", p_company_id: companyId, p_actor_employee_id: guard.employee.id, p_document_id: params.id,
+        p_payload: { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: nextStatus, base_amount: base, gst_amount: gst, total_amount: total, attachment_path: nextAttachmentPath, attachment_name: nextAttachmentName },
+        p_lines: calculated.map((line) => ({ ...line, description: line.description.trim() })),
+        p_issue_postings: [{ source_type: "purchase_invoice_issued", event_type: "purchase_invoice", entry_date: parsed.data.invoice_date, description: `Purchase invoice — ${parsed.data.title}`, lines: issueLines }]
+      });
+      if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
+      if (previousAttachmentPath && previousAttachmentPath !== nextAttachmentPath) await removeUnreferencedAttachments(supabase, companyId, [{ path: previousAttachmentPath, bucket: "transaction-documents" }]);
+      const [{ data: updatedInvoice }, { data: updatedLines }] = await Promise.all([
+        supabase.from("purchase_invoices").select("*").eq("id", params.id).eq("company_id", companyId).single(),
+        supabase.from("purchase_invoice_line_items").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId).order("id")
+      ]);
+      return NextResponse.json({ invoice: updatedInvoice, lineItems: updatedLines ?? [] });
     }
-    const { error: invoiceError } = await supabase.from("purchase_invoices").update(updates).eq("id", params.id).eq("company_id", companyId);
-    if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 500 });
-    if (previousAttachmentPath && previousAttachmentPath !== updates.attachment_path) {
-      await removeUnreferencedAttachments(supabase, companyId, [{ path: previousAttachmentPath, bucket: "transaction-documents" }]);
-    }
-    const { error: deleteLinesError } = await supabase.from("purchase_invoice_line_items").delete().eq("purchase_invoice_id", params.id).eq("company_id", companyId);
-    if (deleteLinesError) return NextResponse.json({ error: deleteLinesError.message }, { status: 500 });
-    const { error: insertLinesError } = await supabase.from("purchase_invoice_line_items").insert(calculated.map((line) => ({ purchase_invoice_id: params.id, company_id: companyId, account_head_id: line.account_head_id, description: line.description, qty: line.qty, rate: line.rate, gst_percent: line.gst_percent, gst_type: line.gst_type, cgst_amount: line.cgst_amount, sgst_amount: line.sgst_amount, igst_amount: line.igst_amount, line_total: line.line_total })));
-    if (insertLinesError) return NextResponse.json({ error: insertLinesError.message }, { status: 500 });
-
     {
       const byAccount = new Map<string, number>();
       calculated.forEach((line) => byAccount.set(line.account_head_id, Number(((byAccount.get(line.account_head_id) || 0) + line.qty * line.rate).toFixed(2))));
-      const journalLines: any[] = Array.from(byAccount.entries()).map(([accountHeadId, amount]) => ({ accountHeadId, amount, entryType: "debit", label: accountById.get(accountHeadId)?.name || "Expense" }));
-      if (gst > 0 && inputGst) journalLines.push({ accountHeadId: inputGst.id, amount: gst, entryType: "debit", label: "Input GST" });
-      journalLines.push({ accountHeadId: vendor.party_account_head_id, amount: total, entryType: "credit", label: "Vendor Payable" });
-      if (oldJournalLine?.journal_id) {
-        const eventId = oldJournalLine.transaction_event_id;
-        const { error: deleteJournalError } = await supabase.from("ledger_entries").delete().eq("company_id", companyId).eq("journal_id", oldJournalLine.journal_id);
-        if (deleteJournalError) return NextResponse.json({ error: deleteJournalError.message }, { status: 500 });
-        const posting = await createBalancedJournal(supabase, { companyId, lines: journalLines, paymentMode: null, description: `Purchase invoice ${invoice.invoice_number} — ${parsed.data.title}`, entryDate: parsed.data.invoice_date, createdBy: guard.employee.id, sourceType: "purchase_invoice_issued", sourceId: params.id, eventType: "purchase_invoice", transactionEventId: eventId });
-        if (posting.error) return NextResponse.json({ error: posting.error.message || "Could not update purchase invoice ledger." }, { status: 500 });
-      } else {
-        const posting = await createBalancedJournal(supabase, { companyId, lines: journalLines, paymentMode: null, description: `Purchase invoice ${invoice.invoice_number} — ${parsed.data.title}`, entryDate: parsed.data.invoice_date, createdBy: guard.employee.id, sourceType: "purchase_invoice_issued", sourceId: params.id, eventType: "purchase_invoice" });
-        if (posting.error) return NextResponse.json({ error: posting.error.message || "Could not post purchase invoice ledger." }, { status: 500 });
-      }
+      const issueLines: any[] = Array.from(byAccount.entries()).map(([accountHeadId, amount]) => ({ account_head_id: accountHeadId, amount, entry_type: "debit", label: accountById.get(accountHeadId)?.name || "Expense" }));
+      if (gst > 0 && inputGst) issueLines.push({ account_head_id: inputGst.id, amount: gst, entry_type: "debit", label: "Input GST" });
+      issueLines.push({ account_head_id: vendor.party_account_head_id, amount: total, entry_type: "credit", label: "Vendor Payable" });
+      const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_purchase_invoice_edit_with_payments", {
+        p_company_id: companyId,
+        p_actor_employee_id: guard.employee.id,
+        p_document_id: params.id,
+        p_payload: { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: editedPaidTotal >= total - 0.005 ? "paid" : editedPaidTotal > 0 ? "partially_paid" : "received", base_amount: base, gst_amount: gst, total_amount: total, attachment_path: parsed.data.remove_attachment ? null : parsed.data.attachment_path !== undefined ? parsed.data.attachment_path?.trim() || null : invoice.attachment_path, attachment_name: parsed.data.remove_attachment ? null : parsed.data.attachment_name !== undefined ? parsed.data.attachment_name?.trim() || null : invoice.attachment_name },
+        p_lines: calculated.map((line) => ({ ...line, description: line.description.trim() })),
+        p_issue_postings: [{ source_type: "purchase_invoice_issued", event_type: "purchase_invoice", entry_date: parsed.data.invoice_date, description: `Purchase invoice — ${parsed.data.title}`, lines: issueLines }],
+        p_payments: parsed.data.payments
+      });
+      if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
+      const [{ data: updatedInvoice }, { data: updatedLines }] = await Promise.all([
+        supabase.from("purchase_invoices").select("*").eq("id", params.id).eq("company_id", companyId).single(),
+        supabase.from("purchase_invoice_line_items").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId).order("id")
+      ]);
+      return NextResponse.json({ invoice: updatedInvoice, lineItems: updatedLines ?? [] });
     }
-    if (parsed.data.payments) {
-      for (const editedPayment of parsed.data.payments) {
-        const previousPayment = paymentById.get(editedPayment.id) as any;
-        const nextAttachmentPath = editedPayment.remove_attachment ? null : editedPayment.attachment_path?.trim() || null;
-        const nextAttachmentName = editedPayment.remove_attachment ? null : editedPayment.attachment_name?.trim() || null;
-        const changed = Number(previousPayment.amount) !== Number(editedPayment.amount)
-          || previousPayment.payment_mode !== editedPayment.payment_mode
-          || (previousPayment.reference_number || null) !== (editedPayment.reference_number?.trim() || null)
-          || previousPayment.paid_at !== editedPayment.paid_at
-          || (previousPayment.attachment_path || null) !== nextAttachmentPath
-          || (previousPayment.attachment_name || null) !== nextAttachmentName;
-        if (!changed) continue;
-        const paymentAccount = await findPaymentAccount(supabase, companyId, editedPayment.payment_mode);
-        if (paymentAccount.error || !paymentAccount.data) return NextResponse.json({ error: "The payment account is missing or inactive." }, { status: 400 });
-        const { data: paymentJournal } = await supabase.from("ledger_entries").select("journal_id,transaction_event_id").eq("company_id", companyId).eq("source_type", "purchase_invoice_payment").eq("source_id", editedPayment.id).limit(1).maybeSingle();
-        if (!paymentJournal?.journal_id) return NextResponse.json({ error: "The ledger entry for one of the payments could not be found." }, { status: 400 });
-        const { error: deletePaymentJournalError } = await supabase.from("ledger_entries").delete().eq("company_id", companyId).eq("journal_id", paymentJournal.journal_id);
-        if (deletePaymentJournalError) return NextResponse.json({ error: deletePaymentJournalError.message }, { status: 500 });
-        const paymentPosting = await createBalancedJournal(supabase, {
-          companyId,
-          lines: [
-            { accountHeadId: vendor.party_account_head_id, amount: editedPayment.amount, entryType: "debit", label: "Vendor Payable" },
-            { accountHeadId: paymentAccount.data.id, amount: editedPayment.amount, entryType: "credit", label: "Bank/Cash" }
-          ],
-          paymentMode: editedPayment.payment_mode,
-          referenceNumber: editedPayment.reference_number?.trim() || null,
-          description: `Payment for purchase invoice ${invoice.invoice_number}`,
-          entryDate: editedPayment.paid_at,
-          createdBy: guard.employee.id,
-          sourceType: "purchase_invoice_payment",
-          sourceId: editedPayment.id,
-          eventType: "purchase_invoice_payment",
-          transactionEventId: paymentJournal.transaction_event_id,
-          attachmentPath: nextAttachmentPath,
-          attachmentName: nextAttachmentName
-        });
-        if (paymentPosting.error || !paymentPosting.journalId) return NextResponse.json({ error: paymentPosting.error?.message || "Could not update payment ledger." }, { status: 500 });
-        const { error: paymentUpdateError } = await supabase.from("purchase_invoice_payments").update({ payment_mode: editedPayment.payment_mode, reference_number: editedPayment.reference_number?.trim() || null, amount: editedPayment.amount, paid_at: editedPayment.paid_at, attachment_path: nextAttachmentPath, attachment_name: nextAttachmentName, journal_id: paymentPosting.journalId, transaction_event_id: paymentPosting.transactionEventId }).eq("id", editedPayment.id).eq("company_id", companyId);
-        if (paymentUpdateError) return NextResponse.json({ error: paymentUpdateError.message }, { status: 500 });
-        if (previousPayment.attachment_path && previousPayment.attachment_path !== nextAttachmentPath) {
-          await removeUnreferencedAttachments(supabase, companyId, [{ path: previousPayment.attachment_path, bucket: "transaction-documents" }]);
-        }
-      }
-    }
-    return NextResponse.json({ success: true });
   } catch (error) { return error as Response; }
 }
 
