@@ -35,10 +35,9 @@ declare
 begin
   select e.id, e.company_id, e.user_id, e.status, e.left_at, e.is_finance,
          coalesce(e.permission_overrides, '{}'::jsonb) as overrides,
-         coalesce(pt.toggles, '{}'::jsonb) as toggles
+         coalesce((select pt.toggles from permission_templates pt where pt.id = e.permission_template_id), '{}'::jsonb) as toggles
     into actor
   from employees e
-  left join permission_templates pt on pt.id = e.permission_template_id
   where e.id = p_actor_employee_id and e.company_id = p_company_id and e.user_id = auth.uid()
   for update;
   if actor.id is null or actor.status <> 'active' or actor.left_at is not null then
@@ -68,8 +67,10 @@ begin
     if (item->>'payment_mode') not in ('cash', 'cheque', 'bank_transfer') then raise exception 'Invalid payment mode'; end if;
   end loop;
 
-  if coalesce((select sum(round((value->>'amount')::numeric, 2)) from jsonb_array_elements(p_payments)), 0)
-     > round((p_payload->>'total_amount')::numeric, 2) + 0.005 then
+  -- Amounts are stored to two decimal places. Allow a one-paise rounding
+  -- difference, but continue rejecting genuine payment overages.
+  if round(coalesce((select sum(round((value->>'amount')::numeric, 2)) from jsonb_array_elements(p_payments)), 0), 2)
+     > round((p_payload->>'total_amount')::numeric, 2) + 0.01 then
     raise exception 'Payments cannot exceed the revised purchase invoice total';
   end if;
 
@@ -84,7 +85,7 @@ begin
       from ledger_entries le where le.company_id = p_company_id and le.source_type = 'purchase_invoice_payment' and le.source_id = payment_id
       order by le.created_at limit 1;
     end if;
-    if old_journal_id is not null then delete from ledger_entries where company_id = p_company_id and journal_id = old_journal_id; end if;
+    if old_journal_id is not null then delete from ledger_entries as le where le.company_id = p_company_id and le.journal_id = old_journal_id; end if;
     new_journal_id := gen_random_uuid();
     new_event_id := coalesce(old_event_id, gen_random_uuid());
     select id into payment_account_id from account_heads
@@ -135,6 +136,7 @@ declare
   application_id uuid;
   journal_id uuid;
   event_id uuid;
+  old_event_id uuid;
   amount numeric(14,2) := round(p_amount, 2);
   available numeric(14,2);
 begin
@@ -149,7 +151,7 @@ begin
     select * into old_advance from customer_advances where id = old_app.advance_id and company_id = p_company_id for update;
     if old_app.journal_id is not null then
       select transaction_event_id into old_event_id from ledger_entries where company_id = p_company_id and journal_id = old_app.journal_id limit 1;
-      delete from ledger_entries where company_id = p_company_id and journal_id = old_app.journal_id;
+      delete from ledger_entries as le where le.company_id = p_company_id and le.journal_id = old_app.journal_id;
       if old_event_id is not null then delete from transaction_events where company_id = p_company_id and id = old_event_id; end if;
     end if;
     delete from customer_advance_applications where id = old_app.id and company_id = p_company_id;

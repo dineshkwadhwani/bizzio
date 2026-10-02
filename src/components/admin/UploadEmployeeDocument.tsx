@@ -31,7 +31,6 @@ export function UploadEmployeeDocument({
       return;
     }
 
-    const { data: publicUrl } = supabase.storage.from("employee-documents").getPublicUrl(uploaded.path);
     const { data: currentEmployee } = await supabase
       .from("employees")
       .select("id")
@@ -41,7 +40,8 @@ export function UploadEmployeeDocument({
       employee_id: employeeId,
       company_id: companyId,
       document_type: documentType,
-      file_url: publicUrl.publicUrl,
+      // employee-documents is private; keep the storage path and sign it when viewing.
+      file_url: uploaded.path,
       uploaded_by: currentEmployee?.id ?? null
     });
 

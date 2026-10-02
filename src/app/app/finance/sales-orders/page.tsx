@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { FinanceDocumentList } from "@/components/finance/FinanceDocumentList";
 
 export const revalidate = 0;
 
@@ -22,11 +23,15 @@ export default async function SalesOrdersPage() {
     );
   }
 
-  const { data: salesOrders } = await supabase
+  const [{ data: salesOrders }, { data: customers }] = await Promise.all([supabase
     .from("sales_orders")
     .select("*, customer:customers(id, name), quotation:quotations(id, quo_number)")
     .eq("company_id", employee.company_id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false }), supabase
+    .from("customers")
+    .select("id, name")
+    .eq("company_id", employee.company_id)
+    .order("name", { ascending: true })]);
 
   return (
     <div>
@@ -35,26 +40,7 @@ export default async function SalesOrdersPage() {
         <Link href="/app/finance/sales-orders/new" className="btn-primary"><Plus size={16} className="mr-2" /> New Sales Order</Link>
       </div>
 
-      <div className="card mt-6 p-0">
-        <div className="divide-y divide-ink-50">
-          {salesOrders?.map((salesOrder: any) => (
-            <Link key={salesOrder.id} href={`/app/finance/sales-orders/${salesOrder.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
-              <div>
-                <p className="font-medium text-ink-800">{salesOrder.title}</p>
-                <p className="text-xs text-ink-400">{salesOrder.so_number}</p>
-                <p className="text-ink-400">{salesOrder.customer?.name || "Unknown customer"}</p>
-              </div>
-              <div className="text-right">
-                <span className={`badge ${salesOrder.status === "invoiced" ? "bg-green-50 text-green-700" : salesOrder.status === "sent" ? "bg-blue-50 text-blue-700" : "bg-ink-100 text-ink-500"}`}>
-                  {salesOrder.status}
-                </span>
-                <p className="mt-1 text-xs text-ink-400">{new Date(salesOrder.created_at).toLocaleDateString()}</p>
-              </div>
-            </Link>
-          ))}
-          {!salesOrders?.length && <p className="px-4 py-8 text-center text-ink-400">No sales orders created yet.</p>}
-        </div>
-      </div>
+      <FinanceDocumentList kind="sales-order" rows={salesOrders ?? []} parties={customers ?? []} />
     </div>
   );
 }

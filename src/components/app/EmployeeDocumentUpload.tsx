@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { EmployeeDocumentLink } from "@/components/app/EmployeeDocumentLink";
 
 const DOCUMENT_TYPES = [
   ["aadhar", "Aadhaar Card", true],
@@ -61,6 +62,11 @@ export function EmployeeDocumentUpload({ employeeId, companyId, documents }: {
                 <p className={`text-xs ${uploaded ? "text-green-600" : required ? "text-red-600" : "text-ink-400"}`}>
                   {uploaded ? "Uploaded" : required ? "Required" : "Not uploaded"}
                 </p>
+                {documents.filter((document) => document.document_type === type).map((document, index) => (
+                  <div key={`${document.file_url}-${index}`} className="mt-1">
+                    <EmployeeDocumentLink fileUrl={document.file_url} />
+                  </div>
+                ))}
               </div>
               <label className="btn-secondary inline-flex cursor-pointer text-xs">
                 <Upload size={14} className="mr-1" /> {uploading && documentType === type ? "Uploading…" : "Upload"}

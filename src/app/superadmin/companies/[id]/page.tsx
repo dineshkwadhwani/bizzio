@@ -20,7 +20,7 @@ export default async function CompanyDetailPage({ params }: { params: { id: stri
 
   const { data: employees } = await supabase
     .from("employees")
-    .select("id, name, email, employee_code, phone, dob, gender, date_of_joining, emergency_contact_name, emergency_contact_phone, bank_account_no, bank_ifsc, bank_name, payable_salary, status, hierarchy_role, is_manager, is_director, is_finance, finance_scope, is_hr, is_software_engineer, is_sales, is_operations, is_support, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
+    .select("id, name, email, employee_code, phone, profile_photo_url, dob, gender, date_of_joining, emergency_contact_name, emergency_contact_phone, bank_account_no, bank_ifsc, bank_name, payable_salary, status, hierarchy_role, is_manager, is_director, is_finance, finance_scope, is_hr, is_software_engineer, is_sales, is_operations, is_support, departments!employees_department_id_fkey(name), titles!employees_title_id_fkey(name), reporting_manager:reporting_manager_id(name)")
     .eq("company_id", params.id)
     .order("name");
 

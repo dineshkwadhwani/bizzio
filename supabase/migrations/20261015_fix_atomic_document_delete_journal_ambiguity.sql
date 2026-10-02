@@ -6,7 +6,6 @@
 do $$
 declare
   v_body text;
-  v_old text := 'delete from ledger_entries where company_id = p_company_id and journal_id = existing_issue.journal_id;';
   v_new text := 'delete from ledger_entries as le where le.company_id = p_company_id and le.journal_id = existing_issue.journal_id;';
 begin
   select p.prosrc
@@ -23,10 +22,16 @@ begin
   end if;
 
   if position(v_new in v_body) = 0 then
-    if position(v_old in v_body) = 0 then
-      raise exception 'The ambiguous ledger journal DELETE was not found in post_atomic_document_operation';
-    end if;
-    v_body := replace(v_body, v_old, v_new);
+    v_body := regexp_replace(
+      v_body,
+      'delete[[:space:]]+from[[:space:]]+ledger_entries[[:space:]]+where[[:space:]]+company_id[[:space:]]*=[[:space:]]*p_company_id[[:space:]]+and[[:space:]]+journal_id[[:space:]]*=[[:space:]]*existing_issue[.]journal_id[[:space:]]*;',
+      v_new,
+      'gi'
+    );
+  end if;
+
+  if position(v_new in v_body) = 0 then
+    raise exception 'The ambiguous ledger journal DELETE was not found in post_atomic_document_operation';
   end if;
 
   execute format(
@@ -35,4 +40,3 @@ begin
   );
 end;
 $$;
-

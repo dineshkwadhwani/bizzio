@@ -4,6 +4,7 @@ import { EmployeeDetailActions } from "@/components/admin/EmployeeDetailActions"
 import { UploadEmployeeDocument } from "@/components/admin/UploadEmployeeDocument";
 import { EditEmployeeDetails } from "@/components/admin/EditEmployeeDetails";
 import { BackButton } from "@/components/layout/BackButton";
+import { EmployeeDocumentLink } from "@/components/app/EmployeeDocumentLink";
 
 export const revalidate = 0;
 
@@ -31,9 +32,16 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
   return (
     <div className="max-w-3xl space-y-6">
       <BackButton href="/admin/employees" label="Back to Employees" />
-      <div>
-        <h1 className="text-2xl font-bold text-ink-900">{employee.name}</h1>
-        <p className="text-sm text-ink-500">{employee.employee_code} · {employee.email}</p>
+      <div className="flex items-center gap-4">
+        {employee.profile_photo_url ? (
+          <img src={employee.profile_photo_url} alt={`${employee.name}'s profile`} className="h-20 w-20 rounded-full object-cover" />
+        ) : (
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-pastel-sky text-2xl font-bold text-ink-700">{employee.name.slice(0, 1)}</div>
+        )}
+        <div>
+          <h1 className="text-2xl font-bold text-ink-900">{employee.name}</h1>
+          <p className="text-sm text-ink-500">{employee.employee_code} · {employee.email}</p>
+        </div>
       </div>
 
       <EditEmployeeDetails employee={employee} departments={departments ?? []} titles={titles ?? []} managers={managers ?? []} />
@@ -61,7 +69,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
           {documents?.map((d) => (
             <div key={d.id} className="flex items-center justify-between text-sm">
               <span>{d.document_type}</span>
-              <a href={d.file_url} className="text-brand-600 hover:underline">View</a>
+              <EmployeeDocumentLink fileUrl={d.file_url} />
             </div>
           ))}
           {!documents?.length && <p className="text-sm text-ink-400">No documents uploaded.</p>}

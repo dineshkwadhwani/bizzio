@@ -8,6 +8,7 @@ type Employee = {
   email: string;
   employee_code: string;
   phone: string | null;
+  profile_photo_url: string | null;
   dob: string | null;
   gender: string | null;
   date_of_joining: string | null;
@@ -82,9 +83,16 @@ export function SuperadminEmployeeList({ employees }: { employees: Employee[] })
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="employee-modal-title">
           <div className="card max-h-[90vh] w-full max-w-2xl overflow-y-auto">
             <div className="flex items-start justify-between gap-4">
-              <div>
+              <div className="flex min-w-0 items-center gap-3">
+                {selected.profile_photo_url ? (
+                  <img src={selected.profile_photo_url} alt={`${selected.name}'s profile`} className="h-16 w-16 rounded-full object-cover" />
+                ) : (
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-pastel-sky text-xl font-bold text-ink-700">{selected.name.slice(0, 1)}</div>
+                )}
+                <div>
                 <h3 id="employee-modal-title" className="text-xl font-bold text-ink-900">{selected.name}</h3>
                 <p className="text-sm text-ink-500">{selected.employee_code} · {selected.email}</p>
+                </div>
               </div>
               <button type="button" onClick={() => setSelected(null)} className="text-2xl leading-none text-ink-400" aria-label="Close">×</button>
             </div>
