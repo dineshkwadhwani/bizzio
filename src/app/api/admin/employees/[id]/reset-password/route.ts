@@ -22,19 +22,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const { data: linkData, error } = await admin.auth.admin.generateLink({
     type: "recovery",
-    email: employee.email,
-    options: {
-      // Keep admin-generated recovery links on the same callback flow as the
-      // self-service forgot-password flow. Without this, Supabase may use the
-      // project's default Site URL, which can bypass Bizzio's reset screen.
-      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online"}/auth/callback`
-    }
+    email: employee.email
   });
-  if (error || !linkData?.properties?.action_link) {
+  if (error || !linkData?.properties?.hashed_token) {
     return NextResponse.json({ error: "Could not generate reset link" }, { status: 500 });
   }
 
-  const tpl = emailTemplates.passwordReset(linkData.properties.action_link);
+  // Use the one-time recovery token directly. A link generated server-side
+  // does not have a browser PKCE verifier, so sending its callback `code`
+  // through the PKCE exchange flow leaves the reset page without a session.
+  const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online"}/reset-password?token_hash=${encodeURIComponent(linkData.properties.hashed_token)}&type=recovery`;
+  const tpl = emailTemplates.passwordReset(resetUrl);
   try {
     const { error: emailError } = await sendEmail({ to: employee.email, ...tpl });
     if (emailError) throw new Error(emailError.message);
