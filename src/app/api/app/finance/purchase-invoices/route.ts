@@ -50,13 +50,13 @@ export async function POST(request: Request) {
     const { data: vendor } = await supabase.from("vendors").select("id,party_account_head_id").eq("id", parsed.data.vendor_id).eq("company_id", companyId).single();
     if (!vendor) return NextResponse.json({ error: "Vendor not found in this company." }, { status: 404 });
     if (!vendor.party_account_head_id) return NextResponse.json({ error: "Vendor payable account is missing." }, { status: 400 });
-    const { data: expenseAccounts, error: accountError } = await supabase.from("account_heads").select("id,name,type,is_party_account").eq("company_id", companyId).eq("type", "expense").eq("is_active", true).eq("is_party_account", false);
+    const { data: purchaseAccounts, error: accountError } = await supabase.from("account_heads").select("id,name,type,is_party_account").eq("company_id", companyId).in("type", ["expense", "asset"]).eq("is_active", true).eq("is_party_account", false);
     if (accountError) return NextResponse.json({ error: accountError.message }, { status: 500 });
-    const cogsAccount = expenseAccounts?.find((account: any) => account.name === "Cost of Goods Sold");
+    const cogsAccount = purchaseAccounts?.find((account: any) => account.name === "Cost of Goods Sold");
     if (!cogsAccount) return NextResponse.json({ error: "Cost of Goods Sold account is missing." }, { status: 400 });
-    const accountById = new Map((expenseAccounts ?? []).map((account: any) => [account.id, account]));
+    const accountById = new Map((purchaseAccounts ?? []).map((account: any) => [account.id, account]));
     const classifiedLines = parsed.data.lines.map((line) => ({ ...line, account_head_id: line.account_head_id || cogsAccount.id }));
-    if (classifiedLines.some((line) => !accountById.has(line.account_head_id))) return NextResponse.json({ error: "Each purchase line must use an active expense account from this company." }, { status: 400 });
+    if (classifiedLines.some((line) => !accountById.has(line.account_head_id))) return NextResponse.json({ error: "Each purchase line must use an active expense or asset account from this company." }, { status: 400 });
     const calculated = classifiedLines.map(amounts);
     const base = Number(calculated.reduce((s, l) => s + l.qty * l.rate, 0).toFixed(2));
     const gst = Number(calculated.reduce((s, l) => s + l.cgst_amount + l.sgst_amount + l.igst_amount, 0).toFixed(2));
@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       inputGst = data;
       if (gst > 0 && !inputGst) return NextResponse.json({ error: "Paid GST account is missing." }, { status: 400 });
     }
-    const issueLines: any[] = Array.from(byAccount.entries()).map(([accountHeadId, amount]) => ({ account_head_id: accountHeadId, amount, entry_type: "debit", label: accountById.get(accountHeadId)?.name || "Expense" }));
+    const issueLines: any[] = Array.from(byAccount.entries()).map(([accountHeadId, amount]) => ({ account_head_id: accountHeadId, amount, entry_type: "debit", label: accountById.get(accountHeadId)?.name || "Purchase" }));
     if (gst > 0 && inputGst) issueLines.push({ account_head_id: inputGst.id, amount: gst, entry_type: "debit", label: "Input GST" });
     issueLines.push({ account_head_id: vendor.party_account_head_id, amount: total, entry_type: "credit", label: "Vendor Payable" });
     const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {

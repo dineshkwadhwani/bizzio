@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AccountPicker, type AccountOption } from "@/components/finance/AccountPicker";
+import type { AccountOption } from "@/components/finance/AccountPicker";
 import { createClient } from "@/lib/supabase/client";
 
 const INITIAL_FORM = {
@@ -42,8 +42,8 @@ export default function NewAdHocEntryPage() {
     loadOptions();
   }, []);
 
-  const optionType = form.entry_type === "opening_balance" ? "asset" : form.entry_type === "gst_payment" ? "liability" : form.entry_type;
-  const filteredOptions = options.filter((option) => option.type === optionType);
+  const optionType = form.entry_type === "opening_balance" ? "asset" : form.entry_type === "gst_payment" ? "liability" : null;
+  const filteredOptions = optionType ? options.filter((option) => option.type === optionType) : options;
   const groupedOptions = useMemo(() => {
     const groups = new Map<string, AccountOption[]>();
     filteredOptions.forEach((option) => {
@@ -118,8 +118,8 @@ export default function NewAdHocEntryPage() {
               value={form.entry_type}
               onChange={(e) => {
                 const nextType = e.target.value as "expense" | "income" | "opening_balance" | "gst_payment";
-                const nextOptionType = nextType === "opening_balance" ? "asset" : nextType === "gst_payment" ? "liability" : nextType;
-                const nextOption = options.find((option) => option.type === nextOptionType);
+                const nextOptionType = nextType === "opening_balance" ? "asset" : nextType === "gst_payment" ? "liability" : null;
+                const nextOption = nextOptionType ? options.find((option) => option.type === nextOptionType) : options[0];
                 setForm((prev) => ({ ...prev, entry_type: nextType, account_id: nextOption ? nextOption.id : "" }));
               }}
             >
@@ -142,7 +142,7 @@ export default function NewAdHocEntryPage() {
         </div>
 
         <div>
-            <label className="label">{form.entry_type === "opening_balance" ? "Asset Account" : form.entry_type === "gst_payment" ? "GST Liability Account" : "Category Account"}</label>
+            <label className="label">{form.entry_type === "opening_balance" ? "Asset Account" : form.entry_type === "gst_payment" ? "GST Liability Account" : "Account"}</label>
           <select
             className="input"
             value={form.account_id}

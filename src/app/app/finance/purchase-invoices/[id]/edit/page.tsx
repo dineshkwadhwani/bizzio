@@ -16,7 +16,65 @@ export default function EditPurchaseInvoicePage() {
   async function upload(file: File) { const supabase = createClient(); const { data: auth } = await supabase.auth.getUser(); const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single(); const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_"); const path = `${userRow?.company_id}/purchase-invoices/${id}-${Date.now()}-${safeName}`; const result = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false }); if (result.error) throw new Error(result.error.message); return { path: result.data.path, name: file.name }; }
   async function uploadPayment(file: File, paymentId: string) { const supabase = createClient(); const { data: auth } = await supabase.auth.getUser(); const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single(); const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_"); const path = `${userRow?.company_id}/purchase-invoice-payments/${paymentId}-${Date.now()}-${safeName}`; const result = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false }); if (result.error) throw new Error(result.error.message); return { path: result.data.path, name: file.name }; }
   function updatePayment(index: number, key: string, value: string) { setPaymentEdits((old) => old.map((payment, i) => i === index ? { ...payment, [key]: value, remove_attachment: key === "attachment_path" ? false : payment.remove_attachment } : payment)); }
-  async function save(event: React.FormEvent) { event.preventDefault(); setSaving(true); setError(null); let document = { path: data.invoice.attachment_path || null, name: data.invoice.attachment_name || null }; if (attachment && !removeAttachment) { try { document = await upload(attachment); } catch (uploadError) { setSaving(false); setError(`The attachment could not be uploaded: ${(uploadError as Error).message}`); return; } } const response = await fetch(`/api/app/finance/purchase-invoices/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, vendor_id: vendorId, purchase_order_id: data.invoice.purchase_order_id || null, vendor_invoice_number: number, invoice_date: date, due_date: dueDate || null, attachment_path: removeAttachment ? null : document.path, attachment_name: removeAttachment ? null : document.name, remove_attachment: removeAttachment, lines: lines.map((line) => ({ ...line, account_head_id: line.account_head_id || defaultAccount, qty: Number(line.qty), rate: Number(line.rate), gst_percent: Number(line.gst_percent) })), payments: paymentEdits.map((payment) => ({ ...payment, amount: Number(payment.amount), remove_attachment: payment.remove_attachment || false })) }) }); const result = await response.json().catch(() => ({})); setSaving(false); if (!response.ok) { setError(typeof result.error === "string" ? result.error : "Unable to save purchase invoice."); return; } router.push(`/app/finance/purchase-invoices/${id}`); router.refresh(); }
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    let uploadedDocument: { path: string; name: string } | null = null;
+    try {
+      if (attachment && !removeAttachment) uploadedDocument = await upload(attachment);
+
+      const response = await fetch(`/api/app/finance/purchase-invoices/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          vendor_id: vendorId,
+          purchase_order_id: data.invoice.purchase_order_id || null,
+          vendor_invoice_number: number,
+          invoice_date: date,
+          due_date: dueDate || null,
+          lines: lines.map((line) => ({
+            ...line,
+            account_head_id: line.account_head_id || defaultAccount,
+            qty: Number(line.qty),
+            rate: Number(line.rate),
+            gst_percent: Number(line.gst_percent)
+          })),
+          payments: paymentEdits.map((payment) => ({
+            ...payment,
+            amount: Number(payment.amount),
+            remove_attachment: payment.remove_attachment || false
+          }))
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof result.error === "string" ? result.error : "Unable to save purchase invoice.");
+
+      if (uploadedDocument || removeAttachment) {
+        const attachmentResponse = await fetch(`/api/app/finance/purchase-invoices/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(uploadedDocument
+            ? { attachment_path: uploadedDocument.path, attachment_name: uploadedDocument.name }
+            : { remove_attachment: true })
+        });
+        const attachmentResult = await attachmentResponse.json().catch(() => ({}));
+        if (!attachmentResponse.ok) {
+          if (uploadedDocument) await createClient().storage.from("transaction-documents").remove([uploadedDocument.path]);
+          throw new Error(typeof attachmentResult.error === "string" ? attachmentResult.error : "The attachment could not be linked.");
+        }
+      }
+
+      setSaving(false);
+      router.push(`/app/finance/purchase-invoices/${id}`);
+      router.refresh();
+    } catch (saveError) {
+      if (uploadedDocument) await createClient().storage.from("transaction-documents").remove([uploadedDocument.path]);
+      setSaving(false);
+      setError((saveError as Error).message);
+    }
+  }
   if (!data) return <div className="card p-6 text-sm text-ink-500">{error || "Loading purchase invoice…"}</div>;
   const totals = lines.reduce((result, line) => { const base = Number(line.qty || 0) * Number(line.rate || 0); result.base += base; result.gst += base * Number(line.gst_percent || 0) / 100; result.total += lineTotal(line); return result; }, { base: 0, gst: 0, total: 0 });
   return <div className="max-w-4xl"><Link href={`/app/finance/purchase-invoices/${id}`} className="text-sm text-ink-500 hover:text-brand-600">← Back to Purchase Invoice</Link><h1 className="mt-4 text-2xl font-bold text-ink-900">Edit Purchase Invoice</h1><p className="mt-1 text-sm text-ink-500">Saving recalculates the vendor payable and input GST ledger entries.</p><form className="card mt-6 space-y-6" onSubmit={save}><div className="grid gap-4 md:grid-cols-2"><label><span className="label">Vendor</span><select className="input" value={vendorId} onChange={(e) => setVendorId(e.target.value)} required>{vendors.map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}</select></label><label><span className="label">Vendor invoice number</span><input className="input" value={number} onChange={(e) => setNumber(e.target.value)} /></label><label><span className="label">Title</span><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} required /></label><label><span className="label">Invoice date</span><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label><label><span className="label">Due date</span><input className="input" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label></div><label><span className="label">Supporting document</span><input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(e) => { setAttachment(e.target.files?.[0] || null); setRemoveAttachment(false); }} />{data.invoice.attachment_name && <div className="mt-2 flex items-center gap-3 text-xs text-ink-500"><span>Current: {data.invoice.attachment_name}</span><button type="button" className="text-red-600 underline" onClick={() => { setRemoveAttachment(true); setAttachment(null); }}>Delete existing attachment</button></div>}{removeAttachment && <p className="mt-1 text-xs text-red-600">The attachment will be deleted when you save.</p>}<p className="mt-1 text-xs text-ink-500">Upload a purchase order, supplier invoice, receipt, or another supporting document.</p></label><div><div className="flex items-center justify-between"><h2 className="text-lg font-semibold text-ink-800">Line Items</h2><button type="button" className="btn-secondary" onClick={() => setLines((old) => [...old, { ...empty, account_head_id: defaultAccount }])}>Add line</button></div><div className="mt-3 space-y-3">{lines.map((line, index) => <div key={index} className="grid items-end gap-2 md:grid-cols-[minmax(0,1fr)_64px_100px_64px_180px_100px_auto]"><input className="input" value={line.description} onChange={(e) => update(index, "description", e.target.value)} required /><input className="input" type="number" min="0.01" step="0.01" value={line.qty} onChange={(e) => update(index, "qty", e.target.value)} required /><input className="input" type="number" min="0" step="0.01" value={line.rate} onChange={(e) => update(index, "rate", e.target.value)} required /><input className="input" type="number" min="0" max="100" step="0.01" value={line.gst_percent} onChange={(e) => update(index, "gst_percent", e.target.value)} required /><select className="input" value={line.account_head_id || defaultAccount} onChange={(e) => update(index, "account_head_id", e.target.value)} required>{accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select><div className="rounded-md bg-ink-50 px-3 py-2 text-right text-sm font-medium whitespace-nowrap">₹{lineTotal(line).toFixed(2)}</div>{lines.length > 1 && <button type="button" className="btn-secondary" onClick={() => setLines((old) => old.filter((_, i) => i !== index))}>Remove</button>}</div>)}</div></div><div className="ml-auto max-w-sm rounded bg-ink-50 p-4 text-sm"><div className="flex justify-between"><span>Base</span><span>₹{totals.base.toFixed(2)}</span></div><div className="flex justify-between"><span>Input GST</span><span>₹{totals.gst.toFixed(2)}</span></div><div className="flex justify-between font-semibold"><span>Total</span><span>₹{totals.total.toFixed(2)}</span></div></div>{paymentEdits.length > 0 && <div className="rounded border border-ink-100 bg-ink-50 p-4"><h2 className="text-lg font-semibold text-ink-800">Payments recorded against this invoice</h2><p className="mt-1 text-xs text-ink-500">Changes here update only the selected payment journal. Existing payments remain unchanged unless you edit them.</p><div className="mt-4 space-y-4">{paymentEdits.map((payment, index) => <div key={payment.id} className="rounded border border-ink-200 bg-white p-3"><div className="grid gap-3 md:grid-cols-4"><label><span className="label">Amount</span><input className="input" type="number" min="0.01" step="0.01" value={payment.amount} onChange={(e) => updatePayment(index, "amount", e.target.value)} /></label><label><span className="label">Payment mode</span><select className="input" value={payment.payment_mode} onChange={(e) => updatePayment(index, "payment_mode", e.target.value)}><option value="bank_transfer">Bank Transfer</option><option value="cash">Cash</option><option value="cheque">Cheque</option></select></label><label><span className="label">Payment date</span><input className="input" type="date" value={payment.paid_at} onChange={(e) => updatePayment(index, "paid_at", e.target.value)} /></label><label><span className="label">Reference</span><input className="input" value={payment.reference_number} onChange={(e) => updatePayment(index, "reference_number", e.target.value)} /></label></div><label className="mt-3 block"><span className="label">Payment document</span><input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { const uploaded = await uploadPayment(file, payment.id); setPaymentEdits((old) => old.map((item, i) => i === index ? { ...item, attachment_path: uploaded.path, attachment_name: uploaded.name, remove_attachment: false } : item)); } catch (uploadError) { setError(`The payment document could not be uploaded: ${(uploadError as Error).message}`); } }} />{payment.attachment_name && <div className="mt-2 flex items-center gap-3 text-xs text-ink-500"><span>Current: {payment.attachment_name}</span><button type="button" className="text-red-600 underline" onClick={() => setPaymentEdits((old) => old.map((item, i) => i === index ? { ...item, attachment_path: null, attachment_name: null, remove_attachment: true } : item))}>Delete existing attachment</button></div>}{payment.remove_attachment && <p className="mt-1 text-xs text-red-600">The payment attachment will be deleted when you save.</p>}</label></div>)}</div></div>}{error && <p className="text-sm text-red-600">{error}</p>}<button className="btn-primary" disabled={saving}>{saving ? "Saving…" : "Save Changes"}</button></form></div>;

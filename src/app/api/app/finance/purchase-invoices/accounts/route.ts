@@ -12,7 +12,7 @@ export async function GET() {
       .from("account_heads")
       .select("id,name,type,is_party_account")
       .eq("company_id", guard.employee.company_id)
-      .eq("type", "expense")
+      .in("type", ["expense", "asset"])
       .eq("is_active", true)
       .eq("is_party_account", false)
       .order("name");

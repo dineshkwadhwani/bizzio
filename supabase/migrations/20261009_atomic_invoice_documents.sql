@@ -161,8 +161,8 @@ begin
   end if;
 
   if jsonb_array_length(coalesce(p_issue_postings, '[]'::jsonb)) > 0 then
-    select journal_id, transaction_event_id into existing_issue
-    from ledger_entries
+    select le.journal_id, le.transaction_event_id into existing_issue
+    from ledger_entries le
     where company_id = p_company_id
       and source_id = document_id
       and source_type in ('invoice_issued', 'purchase_invoice_issued')

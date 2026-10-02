@@ -85,7 +85,7 @@ export async function GET(request: Request) {
       const optionList: any[] = [];
 
       (heads ?? []).forEach((head) => {
-        if (!head.is_party_account && (includeBalanceAccounts || head.type === "expense" || head.type === "income")) {
+        if (includeBalanceAccounts || (!head.is_party_account && (head.type === "expense" || head.type === "income"))) {
           optionList.push({
             id: head.id,
             label: `${head.name} — ${head.type}`,
@@ -99,7 +99,7 @@ export async function GET(request: Request) {
 
       (vendors ?? []).forEach((vendor) => {
         const partyHead = vendor.party_account_head_id ? headLookup.get(vendor.party_account_head_id) : null;
-        if (partyHead && partyHead.is_party_account && partyHead.party_type === "vendor") {
+        if (!includeBalanceAccounts && partyHead && partyHead.is_party_account && partyHead.party_type === "vendor") {
           optionList.push({
             id: partyHead.id,
             label: `Vendor: ${vendor.name} — ${partyHead.name}`,
@@ -113,7 +113,7 @@ export async function GET(request: Request) {
 
       (customers ?? []).forEach((customer) => {
         const partyHead = customer.party_account_head_id ? headLookup.get(customer.party_account_head_id) : null;
-        if (partyHead && partyHead.is_party_account && partyHead.party_type === "customer") {
+        if (!includeBalanceAccounts && partyHead && partyHead.is_party_account && partyHead.party_type === "customer") {
           optionList.push({
             id: partyHead.id,
             label: `Customer: ${customer.name} — ${partyHead.name}`,
@@ -127,7 +127,7 @@ export async function GET(request: Request) {
 
       (employees ?? []).forEach((employee) => {
         const salaryHead = employee.salary_payable_account_head_id ? headLookup.get(employee.salary_payable_account_head_id) : null;
-        if (salaryHead && salaryHead.is_party_account && salaryHead.party_type === "employee") {
+        if (!includeBalanceAccounts && salaryHead && salaryHead.is_party_account && salaryHead.party_type === "employee") {
           optionList.push({
             id: salaryHead.id,
             label: `Employee: ${employee.name} — ${salaryHead.name}`,
@@ -404,7 +404,7 @@ export async function PATCH(request: Request) {
     const isOpening = lines[0].source_type === "opening_balance";
     const isExpense = lines[0].source_type === "adhoc_expense";
     const { data: account } = await supabase.from("account_heads").select("id, type, is_party_account, party_type, is_active").eq("id", parsed.data.account_id).eq("company_id", companyId).single();
-    if (!account?.is_active || account.is_party_account || (isOpening ? account.type !== "asset" : account.type !== (isExpense ? "expense" : "income"))) return NextResponse.json({ error: "Selected account is not valid for this entry." }, { status: 400 });
+    if (!account?.is_active || (isOpening && account.type !== "asset")) return NextResponse.json({ error: "Selected account is not valid for this entry." }, { status: 400 });
     const primary = lines.find((line: any) => isOpening ? line.journal_line === "Opening asset balance" : line.journal_line === (isExpense ? "Expense" : "Income")) || lines.find((line: any) => isOpening ? line.entry_type === "debit" : line.account_head_id === parsed.data.account_id);
     if (!primary) return NextResponse.json({ error: "The journal is missing its main account line." }, { status: 400 });
     const amount = Number(parsed.data.amount.toFixed(2));
@@ -455,19 +455,6 @@ export async function POST(request: Request) {
     if (isGstPayment && (account.is_party_account || account.type !== "liability")) {
       return NextResponse.json({ error: "GST payment must be posted to an active liability account such as GST Payable." }, { status: 400 });
     }
-    if (!isOpeningBalance && !isGstPayment && account.is_party_account) {
-      if (account.party_type === "vendor" && !isExpense) {
-        return NextResponse.json({ error: "Vendor party accounts are only valid for expense entries." }, { status: 400 });
-      }
-      if (account.party_type === "customer" && isExpense) {
-        return NextResponse.json({ error: "Customer party accounts are only valid for income entries." }, { status: 400 });
-      }
-    } else if (!isOpeningBalance && !isGstPayment) {
-      if (account.type !== entryType) {
-        return NextResponse.json({ error: `Selected account does not match the ${entryType} entry type.` }, { status: 400 });
-      }
-    }
-
     const { data: paymentAccount, error: paymentAccountError } = await findPaymentAccount(supabase, companyId, parsed.data.payment_mode);
     const amount = Number(parsed.data.amount.toFixed(2));
     const description = (parsed.data.description?.trim() || parsed.data.notes?.trim() || `${isExpense ? "Ad-hoc expense" : "Ad-hoc income"}`).slice(0, 255);

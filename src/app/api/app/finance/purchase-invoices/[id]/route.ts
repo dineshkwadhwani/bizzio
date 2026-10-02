@@ -62,18 +62,37 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   try {
     const guard = await requireOperations("operations_purchase_invoices");
-    const parsed = EditSchema.safeParse(await request.json());
-    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-
+    const body = await request.json();
     const supabase = createClient();
     const companyId = guard.employee.company_id;
+
+    // Attachment linking is intentionally a metadata-only operation. It must
+    // not regenerate the invoice or payment journals after a successful post.
+    if (body && body.title === undefined && body.lines === undefined && body.vendor_id === undefined && (body.attachment_path !== undefined || body.remove_attachment === true)) {
+      const attachmentPath = body.remove_attachment ? null : typeof body.attachment_path === "string" ? body.attachment_path.trim() || null : null;
+      const attachmentName = body.remove_attachment ? null : typeof body.attachment_name === "string" ? body.attachment_name.trim() || null : null;
+      if (attachmentPath && !attachmentPath.startsWith(`${companyId}/`)) return NextResponse.json({ error: "The attachment path is outside this company." }, { status: 400 });
+      const { data: existingInvoice } = await supabase.from("purchase_invoices").select("id, attachment_path").eq("id", params.id).eq("company_id", companyId).single();
+      if (!existingInvoice) return NextResponse.json({ error: "Purchase invoice not found." }, { status: 404 });
+      const { data: updatedInvoice, error: attachmentError } = await supabase.from("purchase_invoices").update({ attachment_path: attachmentPath, attachment_name: attachmentName }).eq("id", params.id).eq("company_id", companyId).select("*").single();
+      if (attachmentError) return NextResponse.json({ error: attachmentError.message }, { status: 500 });
+      if (existingInvoice.attachment_path && existingInvoice.attachment_path !== attachmentPath) await removeUnreferencedAttachments(supabase, companyId, [{ path: existingInvoice.attachment_path, bucket: "transaction-documents" }]);
+      return NextResponse.json({ invoice: updatedInvoice });
+    }
+
+    const parsed = EditSchema.safeParse(body);
+    if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+
     const { data: invoice } = await supabase.from("purchase_invoices").select("*").eq("id", params.id).eq("company_id", companyId).single();
     if (!invoice) return NextResponse.json({ error: "Purchase invoice not found." }, { status: 404 });
     if (invoice.status === "cancelled") return NextResponse.json({ error: "Cancelled purchase invoices cannot be edited." }, { status: 400 });
 
     const { data: vendor } = await supabase.from("vendors").select("id,party_account_head_id").eq("id", parsed.data.vendor_id).eq("company_id", companyId).single();
     if (!vendor?.party_account_head_id) return NextResponse.json({ error: "Vendor payable account is missing." }, { status: 400 });
-    const { data: payments } = await supabase.from("purchase_invoice_payments").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId);
+    const [{ data: payments }, { data: existingLines }] = await Promise.all([
+      supabase.from("purchase_invoice_payments").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId),
+      supabase.from("purchase_invoice_line_items").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId).order("id")
+    ]);
     const paidTotal = (payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
     if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: invoice.created_by, moneyPosted: paidTotal > 0 })) {
       return NextResponse.json({ error: "Only the creator may edit an unpaid purchase invoice. Paid invoices require a finance manager." }, { status: 403 });
@@ -103,10 +122,50 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     }));
     if (paymentChangesRequested && !canEditPayments) return NextResponse.json({ error: "Only an authorized finance user can edit a recorded payment." }, { status: 403 });
 
-    const { data: expenseAccounts, error: accountError } = await supabase.from("account_heads").select("id,name,type,is_party_account").eq("company_id", companyId).eq("type", "expense").eq("is_active", true).eq("is_party_account", false);
+    // An attachment-only edit must never rebuild accounting journals. This
+    // also protects users who still have an older frontend bundle that sends
+    // the complete invoice payload together with the attachment fields.
+    const normalizedLines = parsed.data.lines.map((line) => ({
+      description: line.description.trim(),
+      qty: Number(line.qty),
+      rate: Number(line.rate),
+      gst_percent: Number(line.gst_percent),
+      gst_type: line.gst_type,
+      account_head_id: line.account_head_id
+    }));
+    const currentLines = (existingLines ?? []).map((line: any) => ({
+      description: String(line.description || "").trim(),
+      qty: Number(line.qty),
+      rate: Number(line.rate),
+      gst_percent: Number(line.gst_percent),
+      gst_type: line.gst_type,
+      account_head_id: line.account_head_id
+    }));
+    const linesChanged = normalizedLines.length !== currentLines.length
+      || normalizedLines.some((line, index) => Object.keys(line).some((key) => (line as any)[key] !== (currentLines[index] as any)?.[key]));
+    const documentFieldsChanged = invoice.vendor_id !== parsed.data.vendor_id
+      || (invoice.purchase_order_id || null) !== (parsed.data.purchase_order_id || null)
+      || (invoice.title || "") !== parsed.data.title
+      || (invoice.vendor_invoice_number || "") !== (parsed.data.vendor_invoice_number?.trim() || "")
+      || invoice.invoice_date !== parsed.data.invoice_date
+      || (invoice.due_date || null) !== (parsed.data.due_date || null);
+    const attachmentRequested = parsed.data.remove_attachment === true || parsed.data.attachment_path !== undefined;
+    const nextAttachmentPath = parsed.data.remove_attachment ? null : parsed.data.attachment_path !== undefined ? parsed.data.attachment_path?.trim() || null : invoice.attachment_path;
+    const nextAttachmentName = parsed.data.remove_attachment ? null : parsed.data.attachment_name !== undefined ? parsed.data.attachment_name?.trim() || null : invoice.attachment_name;
+    const attachmentChanged = (invoice.attachment_path || null) !== nextAttachmentPath
+      || (invoice.attachment_name || null) !== nextAttachmentName;
+    if (attachmentRequested && attachmentChanged && !linesChanged && !documentFieldsChanged && !paymentChangesRequested) {
+      if (nextAttachmentPath && !nextAttachmentPath.startsWith(`${companyId}/`)) return NextResponse.json({ error: "The attachment path is outside this company." }, { status: 400 });
+      const { data: updatedInvoice, error: attachmentError } = await supabase.from("purchase_invoices").update({ attachment_path: nextAttachmentPath, attachment_name: nextAttachmentName }).eq("id", params.id).eq("company_id", companyId).select("*").single();
+      if (attachmentError) return NextResponse.json({ error: attachmentError.message }, { status: 500 });
+      if (invoice.attachment_path && invoice.attachment_path !== nextAttachmentPath) await removeUnreferencedAttachments(supabase, companyId, [{ path: invoice.attachment_path, bucket: "transaction-documents" }]);
+      return NextResponse.json({ invoice: updatedInvoice, lineItems: existingLines ?? [] });
+    }
+
+    const { data: purchaseAccounts, error: accountError } = await supabase.from("account_heads").select("id,name,type,is_party_account").eq("company_id", companyId).in("type", ["expense", "asset"]).eq("is_active", true).eq("is_party_account", false);
     if (accountError) return NextResponse.json({ error: accountError.message }, { status: 500 });
-    const accountById = new Map((expenseAccounts ?? []).map((account: any) => [account.id, account]));
-    if (parsed.data.lines.some((line) => !accountById.has(line.account_head_id))) return NextResponse.json({ error: "Each purchase line must use an active expense account from this company." }, { status: 400 });
+    const accountById = new Map((purchaseAccounts ?? []).map((account: any) => [account.id, account]));
+    if (parsed.data.lines.some((line) => !accountById.has(line.account_head_id))) return NextResponse.json({ error: "Each purchase line must use an active expense or asset account from this company." }, { status: 400 });
     const calculated = parsed.data.lines.map(calculateLine);
     const base = Number(calculated.reduce((sum, line) => sum + line.qty * line.rate, 0).toFixed(2));
     const gst = Number(calculated.reduce((sum, line) => sum + line.cgst_amount + line.sgst_amount + line.igst_amount, 0).toFixed(2));

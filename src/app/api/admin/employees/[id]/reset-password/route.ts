@@ -22,7 +22,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const { data: linkData, error } = await admin.auth.admin.generateLink({
     type: "recovery",
-    email: employee.email
+    email: employee.email,
+    options: {
+      // Keep admin-generated recovery links on the same callback flow as the
+      // self-service forgot-password flow. Without this, Supabase may use the
+      // project's default Site URL, which can bypass Bizzio's reset screen.
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online"}/auth/callback`
+    }
   });
   if (error || !linkData?.properties?.action_link) {
     return NextResponse.json({ error: "Could not generate reset link" }, { status: 500 });

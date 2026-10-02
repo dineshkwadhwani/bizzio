@@ -77,8 +77,8 @@ begin
 
   for item in select value from jsonb_array_elements(p_payments) loop
     payment_id := (item->>'id')::uuid;
-    select journal_id, transaction_event_id into old_journal_id, old_event_id
-    from purchase_invoice_payments where id = payment_id and company_id = p_company_id for update;
+    select pip.journal_id, pip.transaction_event_id into old_journal_id, old_event_id
+    from purchase_invoice_payments pip where pip.id = payment_id and pip.company_id = p_company_id for update;
     if old_journal_id is null then
       select le.journal_id, le.transaction_event_id into old_journal_id, old_event_id
       from ledger_entries le where le.company_id = p_company_id and le.source_type = 'purchase_invoice_payment' and le.source_id = payment_id
