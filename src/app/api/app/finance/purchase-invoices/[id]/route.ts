@@ -4,7 +4,7 @@ import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { collectTransactionAttachmentRefs, removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
 import { effectiveToggles, hasPermission } from "@/lib/permissions";
-import { canManageSourceDocument } from "@/lib/transaction-access";
+import { canEditInvoices, isFinanceManager } from "@/lib/transaction-access";
 
 const LineSchema = z.object({
   description: z.string().trim().min(1),
@@ -55,7 +55,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     ]);
     const attachmentUrl = invoice.attachment_path ? (await supabase.storage.from("transaction-documents").createSignedUrl(invoice.attachment_path, 3600)).data?.signedUrl ?? null : null;
     const paymentsWithUrls = await Promise.all((payments ?? []).map(async (payment: any) => ({ ...payment, attachment_url: payment.attachment_path ? (await supabase.storage.from("transaction-documents").createSignedUrl(payment.attachment_path, 3600)).data?.signedUrl ?? null : null })));
-    return NextResponse.json({ invoice: { ...invoice, attachment_url: attachmentUrl }, lineItems: lineItems ?? [], payments: paymentsWithUrls });
+    const canEdit = canEditInvoices(guard.employee as any) && (invoice.status === "paid" ? isFinanceManager(guard.employee as any) : invoice.created_by === guard.employee.id);
+    return NextResponse.json({ invoice: { ...invoice, attachment_url: attachmentUrl }, lineItems: lineItems ?? [], payments: paymentsWithUrls, canEdit });
   } catch (error) { return error as Response; }
 }
 
@@ -94,9 +95,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       supabase.from("purchase_invoice_line_items").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId).order("id")
     ]);
     const paidTotal = (payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
-    if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: invoice.created_by, moneyPosted: paidTotal > 0 })) {
-      return NextResponse.json({ error: "Only the creator may edit an unpaid purchase invoice. Paid invoices require a finance manager." }, { status: 403 });
-    }
+    if (!canEditInvoices(guard.employee as any)) return NextResponse.json({ error: "The Edit invoices permission is required." }, { status: 403 });
+    const financeManager = isFinanceManager(guard.employee as any);
+    if (invoice.status === "paid" && !financeManager) return NextResponse.json({ error: "Paid invoices can only be edited by a finance manager." }, { status: 403 });
+    if (invoice.status !== "paid" && invoice.created_by !== guard.employee.id) return NextResponse.json({ error: "Only the invoice creator can edit an unpaid purchase invoice." }, { status: 403 });
     if (paidTotal > 0 && invoice.vendor_id !== parsed.data.vendor_id) return NextResponse.json({ error: "The vendor cannot be changed after a payment has been recorded. Edit or reverse the payment first." }, { status: 400 });
     const paymentById = new Map((payments ?? []).map((payment: any) => [payment.id, payment]));
     if (parsed.data.payments) {
@@ -231,13 +233,16 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     const guard = await requireOperations("operations_purchase_invoices");
     const supabase = createClient();
     const companyId = guard.employee.company_id;
-    const { data: invoice } = await supabase.from("purchase_invoices").select("id, created_by, purchase_order_id").eq("id", params.id).eq("company_id", companyId).single();
+    const { data: invoice } = await supabase.from("purchase_invoices").select("id, status, created_by, purchase_order_id").eq("id", params.id).eq("company_id", companyId).single();
     if (!invoice) return NextResponse.json({ error: "Purchase invoice not found." }, { status: 404 });
     const [{ data: payments }, { data: issueEntries }] = await Promise.all([
       supabase.from("purchase_invoice_payments").select("id").eq("purchase_invoice_id", params.id).eq("company_id", companyId),
       supabase.from("ledger_entries").select("journal_id, transaction_event_id").eq("company_id", companyId).eq("source_type", "purchase_invoice_issued").eq("source_id", params.id)
     ]);
-    if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: invoice.created_by, moneyPosted: Boolean(payments?.length) })) {
+    if (!canEditInvoices(guard.employee as any)) {
+      return NextResponse.json({ error: "The Edit invoices permission is required." }, { status: 403 });
+    }
+    if (!isFinanceManager(guard.employee as any) && (invoice.status === "paid" || invoice.created_by !== guard.employee.id)) {
       return NextResponse.json({ error: "Only the creator may delete an unpaid purchase invoice. Paid invoices require a finance manager." }, { status: 403 });
     }
     const paymentIds = (payments ?? []).map((payment: any) => payment.id);

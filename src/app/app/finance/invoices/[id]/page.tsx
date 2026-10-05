@@ -29,7 +29,7 @@ export default function InvoiceDetailPage() {
         setError(json.error || "Unable to load invoice.");
         return;
       }
-      setData({ invoice: json.invoice, lineItems: json.lineItems || [], advanceApplications: json.advanceApplications || [] });
+      setData({ invoice: json.invoice, lineItems: json.lineItems || [], advanceApplications: json.advanceApplications || [], canEdit: json.canEdit });
       const advanceApplied = (json.advanceApplications || []).reduce((sum: number, application: any) => sum + Number(application.amount || 0), 0);
       setAmountReceived(String(Math.max(0, Number(json.invoice.total_amount || 0) - advanceApplied).toFixed(2)));
       const attachmentResponse = await fetch(`/api/app/finance/invoices/${params.id}/attachments`);
@@ -234,17 +234,17 @@ export default function InvoiceDetailPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex flex-wrap gap-3">
-          {data.invoice.status === "draft" && (
+          {data.canEdit && data.invoice.status === "draft" && (
             <>
-              <Link href={`/app/finance/invoices/new?edit_id=${data.invoice.id}`} className="btn-secondary flex-1 text-center">Edit Draft</Link>
+              <Link href={`/app/finance/invoices/${data.invoice.id}/edit`} className="btn-secondary flex-1 text-center">Edit Draft</Link>
               <button type="button" className="btn-secondary flex-1" disabled={loading} onClick={() => updateStatus("reviewed")}>
                 {loading ? "Updating…" : "Mark Reviewed"}
               </button>
             </>
           )}
-          {data.invoice.status === "reviewed" && (
+          {data.canEdit && data.invoice.status === "reviewed" && (
             <>
-              <Link href={`/app/finance/invoices/new?edit_id=${data.invoice.id}`} className="btn-secondary flex-1 text-center">Edit Invoice</Link>
+              <Link href={`/app/finance/invoices/${data.invoice.id}/edit`} className="btn-secondary flex-1 text-center">Edit Invoice</Link>
               <button type="button" className="btn-primary flex-1" disabled={loading} onClick={() => updateStatus("sent")}>
                 {loading ? "Sending…" : "Send Invoice"}
               </button>

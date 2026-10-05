@@ -62,18 +62,18 @@ export async function POST(request: Request) {
     if (paymentAccount.error || !paymentAccount.data) return NextResponse.json({ error: "The payment account is missing or inactive." }, { status: 400 });
     if (!invoice.customer?.party_account_head_id) return NextResponse.json({ error: "Customer receivable account is missing." }, { status: 400 });
     const lines: any[] = [
-      { accountHeadId: paymentAccount.data.id, amount: parsed.data.amount_received, entryType: "debit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" },
-      { accountHeadId: invoice.customer.party_account_head_id, amount: balanceDue, entryType: "credit", label: "Customer Receivable" }
+      { account_head_id: paymentAccount.data.id, amount: parsed.data.amount_received, entry_type: "debit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" },
+      { account_head_id: invoice.customer.party_account_head_id, amount: balanceDue, entry_type: "credit", label: "Customer Receivable" }
     ];
     if (parsed.data.tds_amount > 0) {
       const { data: tds } = await supabase.from("account_heads").select("id").eq("company_id", companyId).eq("name", "TDS Receivable").eq("type", "asset").eq("is_active", true).maybeSingle();
       if (!tds) return NextResponse.json({ error: "TDS Receivable account is missing." }, { status: 400 });
-      lines.push({ accountHeadId: tds.id, amount: parsed.data.tds_amount, entryType: "debit", label: "TDS Receivable" });
+      lines.push({ account_head_id: tds.id, amount: parsed.data.tds_amount, entry_type: "debit", label: "TDS Receivable" });
     }
     if (parsed.data.discount_amount > 0) {
       const { data: discount } = await supabase.from("account_heads").select("id").eq("company_id", companyId).eq("name", "Sales Discounts").eq("type", "expense").eq("is_active", true).maybeSingle();
       if (!discount) return NextResponse.json({ error: "Sales Discounts account is missing." }, { status: 400 });
-      lines.push({ accountHeadId: discount.id, amount: parsed.data.discount_amount, entryType: "debit", label: "Sales Discounts" });
+      lines.push({ account_head_id: discount.id, amount: parsed.data.discount_amount, entry_type: "debit", label: "Sales Discounts" });
     }
     const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
       p_operation: "invoice_receipt",

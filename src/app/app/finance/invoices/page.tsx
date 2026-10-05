@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { FinanceDocumentList } from "@/components/finance/FinanceDocumentList";
+import { canEditInvoices, isFinanceManager } from "@/lib/transaction-access";
 
 export const revalidate = 0;
 
@@ -10,7 +11,7 @@ export default async function InvoicesPage() {
   const { data: { user } } = await supabase.auth.getUser();
   const { data: employee } = await supabase
     .from("employees")
-    .select("company_id, is_finance, is_operations")
+    .select("id, company_id, is_finance, is_operations, permission_overrides, permission_templates(toggles)")
     .eq("user_id", user?.id)
     .single();
 
@@ -42,7 +43,7 @@ export default async function InvoicesPage() {
         </Link>
       </div>
 
-      <FinanceDocumentList kind="invoice" rows={invoices ?? []} parties={customers ?? []} />
+      <FinanceDocumentList kind="invoice" rows={invoices ?? []} parties={customers ?? []} canEditInvoices={canEditInvoices(employee)} employeeId={employee.id} financeManager={isFinanceManager(employee)} />
     </div>
   );
 }

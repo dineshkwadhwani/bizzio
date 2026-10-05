@@ -8,6 +8,14 @@ export function isFinanceManager(employee: Record<string, any> | null | undefine
   return hasPermission(effectiveToggles(template?.toggles, employee.permission_overrides), "edit_transactions");
 }
 
+export function canEditInvoices(employee: Record<string, any> | null | undefined) {
+  if (!employee) return false;
+  const template = Array.isArray(employee.permission_templates)
+    ? employee.permission_templates[0]
+    : employee.permission_templates;
+  return hasPermission(effectiveToggles(template?.toggles, employee.permission_overrides), "edit_invoices");
+}
+
 /** Source-document rule: its creator owns it until a money movement is posted. */
 export function canManageSourceDocument({
   employee,

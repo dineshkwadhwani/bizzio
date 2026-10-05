@@ -24,6 +24,7 @@ export const PERMISSION_GROUPS = [
       ["operations_purchase_invoices", "Purchase invoices"],
       ["operations_sales_orders", "Sales orders"],
       ["operations_sales_invoices", "Sales invoices"],
+      ["edit_invoices", "Edit invoices"],
     ]
   },
   {

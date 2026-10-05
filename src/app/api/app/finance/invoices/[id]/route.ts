@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
-import { ensureInvoiceIssuedJournal } from "@/lib/finance-ledger";
+import { ensureInvoiceIssuedJournal, findPaymentAccount } from "@/lib/finance-ledger";
 import { collectTransactionAttachmentRefs, removeUnreferencedAttachments } from "@/lib/attachment-cleanup";
-import { canManageSourceDocument } from "@/lib/transaction-access";
+import { canEditInvoices, isFinanceManager } from "@/lib/transaction-access";
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -22,7 +22,15 @@ const UpdateSchema = z.object({
   lines: z.array(LineItemSchema).optional(),
   advance_application: z.object({ advance_id: z.string().uuid(), amount: z.coerce.number().nonnegative() }).optional().nullable(),
   attachment_path: z.string().optional().nullable(),
-  attachment_name: z.string().optional().nullable()
+  attachment_name: z.string().optional().nullable(),
+  receipt: z.object({
+    payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
+    reference_number: z.string().optional().or(z.literal("")),
+    amount_received: z.coerce.number().positive(),
+    tds_amount: z.coerce.number().nonnegative().default(0),
+    discount_amount: z.coerce.number().nonnegative().default(0),
+    received_at: z.string().date()
+  }).optional()
 });
 
 function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: number; gst_type: "cgst_sgst" | "igst" }) {
@@ -69,14 +77,18 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
-    const { data: advanceApplications, error: advanceApplicationError } = await supabase
+    const [{ data: advanceApplications, error: advanceApplicationError }, { data: receipt }] = await Promise.all([
+      supabase
       .from("customer_advance_applications")
       .select("id, advance_id, amount, journal_id, created_at, advance:customer_advances(id, amount, applied_amount, reference_number, received_at)")
       .eq("company_id", guard.employee.company_id)
       .eq("invoice_id", params.id)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: true }),
+      supabase.from("receipts").select("*").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).maybeSingle()
+    ]);
     if (advanceApplicationError) return NextResponse.json({ error: advanceApplicationError.message }, { status: 500 });
-    return NextResponse.json({ invoice, lineItems: lineItems ?? [], advanceApplications: advanceApplications ?? [] });
+    const canEdit = canEditInvoices(guard.employee as any) && (invoice.status === "paid" ? isFinanceManager(guard.employee as any) : invoice.created_by === guard.employee.id);
+    return NextResponse.json({ invoice, lineItems: lineItems ?? [], advanceApplications: advanceApplications ?? [], receipt: receipt ?? null, canEdit });
   } catch (error) {
     return error as Response;
   }
@@ -107,8 +119,56 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       supabase.from("receipts").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1),
       supabase.from("customer_advance_applications").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1)
     ]);
-    if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: existing.created_by, moneyPosted: Boolean(receipts?.length || advanceApplications?.length) })) {
-      return NextResponse.json({ error: "Only the creator may edit an unpaid invoice. Paid or applied invoices require a finance manager." }, { status: 403 });
+    if (!canEditInvoices(guard.employee as any)) return NextResponse.json({ error: "The Edit invoices permission is required." }, { status: 403 });
+    const financeManager = isFinanceManager(guard.employee as any);
+    if (existing.status === "paid" && !financeManager) return NextResponse.json({ error: "Paid invoices can only be edited by a finance manager." }, { status: 403 });
+    if (existing.status !== "paid" && existing.created_by !== guard.employee.id) return NextResponse.json({ error: "Only the invoice creator can edit an unpaid invoice." }, { status: 403 });
+
+    const { data: existingReceipt } = await supabase.from("receipts").select("*").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).maybeSingle();
+    let receiptStatusOverride: "sent" | "paid" | null = null;
+    if (parsed.data.receipt) {
+      if (!existingReceipt) return NextResponse.json({ error: "No receipt is recorded against this invoice." }, { status: 400 });
+      if (!isFinanceManager(guard.employee as any)) return NextResponse.json({ error: "Only an authorized finance manager can edit a recorded receipt." }, { status: 403 });
+      if (parsed.data.receipt.tds_amount > 0 && parsed.data.receipt.discount_amount > 0) return NextResponse.json({ error: "Use either TDS or discount, not both." }, { status: 400 });
+      const grossAmount = Number((parsed.data.receipt.amount_received + parsed.data.receipt.tds_amount + parsed.data.receipt.discount_amount).toFixed(2));
+      if (grossAmount <= 0 || grossAmount > Number(existing.total_amount) + 0.005) return NextResponse.json({ error: "The received amount cannot exceed the invoice total." }, { status: 400 });
+      const receiptChanged = Number(existingReceipt.amount_received || existingReceipt.amount) !== parsed.data.receipt.amount_received
+        || existingReceipt.payment_mode !== parsed.data.receipt.payment_mode
+        || (existingReceipt.reference_number || "") !== (parsed.data.receipt.reference_number?.trim() || "")
+        || Number(existingReceipt.tds_amount || 0) !== parsed.data.receipt.tds_amount
+        || Number(existingReceipt.discount_amount || 0) !== parsed.data.receipt.discount_amount
+        || String(existingReceipt.received_at || "").slice(0, 10) !== parsed.data.receipt.received_at;
+      if (receiptChanged) {
+        const customer = await supabase.from("customers").select("party_account_head_id").eq("id", existing.customer_id).eq("company_id", guard.employee.company_id).single();
+        if (!customer.data?.party_account_head_id) return NextResponse.json({ error: "Customer receivable account is missing." }, { status: 400 });
+        const paymentAccount = await findPaymentAccount(supabase, guard.employee.company_id, parsed.data.receipt.payment_mode);
+        if (paymentAccount.error || !paymentAccount.data) return NextResponse.json({ error: "The payment account is missing or inactive." }, { status: 400 });
+        const deltaTreatment = parsed.data.receipt.tds_amount > 0 ? "tds" : parsed.data.receipt.discount_amount > 0 ? "discount" : null;
+        const accountNames = deltaTreatment === "tds" ? ["TDS Receivable"] : deltaTreatment === "discount" ? ["Sales Discounts"] : [];
+        const { data: deltaAccount } = accountNames.length ? await supabase.from("account_heads").select("id").eq("company_id", guard.employee.company_id).eq("name", accountNames[0]).eq("is_active", true).maybeSingle() : { data: null };
+        if (deltaTreatment && !deltaAccount) return NextResponse.json({ error: `${deltaTreatment === "tds" ? "TDS Receivable" : "Sales Discounts"} account is missing.` }, { status: 400 });
+        const journalId = existingReceipt.journal_id;
+        if (journalId && existingReceipt.post_to_ledger !== false) {
+          const { data: oldEntries } = await supabase.from("ledger_entries").select("transaction_event_id").eq("company_id", guard.employee.company_id).eq("journal_id", journalId).limit(1);
+          const eventId = oldEntries?.[0]?.transaction_event_id;
+          await supabase.from("ledger_entries").delete().eq("company_id", guard.employee.company_id).eq("journal_id", journalId);
+          const description = `Payment for invoice ${existing.invoice_number}`;
+          const lines = [
+            { account_head_id: paymentAccount.data.id, amount: parsed.data.receipt.amount_received, entry_type: "debit", label: parsed.data.receipt.payment_mode === "cash" ? "Cash" : "Bank" },
+            { account_head_id: customer.data.party_account_head_id, amount: grossAmount, entry_type: "credit", label: "Customer Receivable" },
+            ...(deltaAccount ? [{ account_head_id: deltaAccount.id, amount: parsed.data.receipt.tds_amount || parsed.data.receipt.discount_amount, entry_type: "debit", label: deltaTreatment === "tds" ? "TDS Receivable" : "Sales Discounts" }] : [])
+          ];
+          if (eventId) await supabase.from("transaction_events").update({ event_date: parsed.data.receipt.received_at, reference_number: parsed.data.receipt.reference_number?.trim() || null, description, primary_journal_id: journalId }).eq("id", eventId).eq("company_id", guard.employee.company_id);
+          const { error: ledgerError } = await supabase.from("ledger_entries").insert(lines.map((line) => ({ company_id: guard.employee.company_id, account_head_id: line.account_head_id, entry_type: line.entry_type, amount: Number(line.amount.toFixed(2)), is_accountable: true, source_type: "invoice_receipt", source_id: existing.id, payment_mode: parsed.data.receipt?.payment_mode, reference_number: parsed.data.receipt?.reference_number?.trim() || null, description, journal_id: journalId, journal_line: line.label, transaction_event_id: eventId, entry_date: parsed.data.receipt?.received_at, created_by: guard.employee.id })));
+          if (ledgerError) return NextResponse.json({ error: ledgerError.message }, { status: 500 });
+        }
+        const { error: receiptError } = await supabase.from("receipts").update({ payment_mode: parsed.data.receipt.payment_mode, reference_number: parsed.data.receipt.reference_number?.trim() || null, amount: grossAmount, amount_received: parsed.data.receipt.amount_received, tds_amount: parsed.data.receipt.tds_amount, discount_amount: parsed.data.receipt.discount_amount, delta_treatment: deltaTreatment, received_at: `${parsed.data.receipt.received_at}T00:00:00Z` }).eq("id", existingReceipt.id).eq("company_id", guard.employee.company_id);
+        if (receiptError) return NextResponse.json({ error: receiptError.message }, { status: 500 });
+        const advanceTotal = (advanceApplications ?? []).filter((application: any) => application.journal_id).reduce((sum: number, application: any) => sum + Number(application.amount || 0), 0);
+        const nextStatus = grossAmount + advanceTotal >= Number(existing.total_amount) - 0.005 ? "paid" : "sent";
+        receiptStatusOverride = nextStatus;
+        await supabase.from("invoices").update({ status: nextStatus }).eq("id", existing.id).eq("company_id", guard.employee.company_id);
+      }
     }
 
     const customerChanged = parsed.data.customer_id !== undefined && parsed.data.customer_id !== existing.customer_id;
@@ -166,7 +226,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
       const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {
         p_operation: "sales_invoice_edit", p_company_id: guard.employee.company_id, p_actor_employee_id: guard.employee.id, p_document_id: params.id,
-        p_payload: { customer_id: parsed.data.customer_id, title: parsed.data.title, invoice_date: parsed.data.invoice_date, status: parsed.data.status, base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)), attachment_path: parsed.data.attachment_path, attachment_name: parsed.data.attachment_name },
+        p_payload: { customer_id: parsed.data.customer_id, title: parsed.data.title, invoice_date: parsed.data.invoice_date, status: receiptStatusOverride ?? parsed.data.status, base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)), attachment_path: parsed.data.attachment_path, attachment_name: parsed.data.attachment_name },
         p_lines: calculated, p_issue_postings: issuePostings
       });
       if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
@@ -188,8 +248,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (parsed.data.title !== undefined) updates.title = parsed.data.title;
     if (parsed.data.customer_id !== undefined) updates.customer_id = parsed.data.customer_id;
     if (parsed.data.invoice_date !== undefined) updates.invoice_date = parsed.data.invoice_date;
-    if (parsed.data.status) {
-      updates.status = parsed.data.status;
+    if (parsed.data.status || receiptStatusOverride) {
+      updates.status = receiptStatusOverride ?? parsed.data.status;
       if (parsed.data.status === "sent") {
         updates.sent_at = new Date().toISOString();
       }
@@ -327,7 +387,10 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
       supabase.from("customer_advance_applications").select("id").eq("company_id", guard.employee.company_id).eq("invoice_id", params.id).limit(1),
       supabase.from("ledger_entries").select("journal_id, transaction_event_id").eq("company_id", guard.employee.company_id).eq("source_type", "invoice_issued").eq("source_id", params.id)
     ]);
-    if (!canManageSourceDocument({ employee: guard.employee as any, createdBy: invoice.created_by, moneyPosted: Boolean(receipts?.length || advances?.length) })) {
+    if (!canEditInvoices(guard.employee as any)) {
+      return NextResponse.json({ error: "The Edit invoices permission is required." }, { status: 403 });
+    }
+    if (!isFinanceManager(guard.employee as any) && (invoice.status === "paid" || invoice.created_by !== guard.employee.id)) {
       return NextResponse.json({ error: "Only the creator may delete an unpaid invoice. Paid or applied invoices require a finance manager." }, { status: 403 });
     }
     if (receipts?.length || advances?.length) {

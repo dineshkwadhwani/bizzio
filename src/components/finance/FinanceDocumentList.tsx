@@ -11,6 +11,9 @@ type FinanceDocumentListProps = {
   kind: DocumentKind;
   rows: any[];
   parties: { id: string; name: string }[];
+  canEditInvoices?: boolean;
+  employeeId?: string;
+  financeManager?: boolean;
 };
 
 const config: Record<DocumentKind, { partyLabel: string; dateField: string; dateLabel: string }> = {
@@ -31,7 +34,7 @@ function displayDate(value: string | null | undefined) {
   return new Date(value).toLocaleDateString();
 }
 
-export function FinanceDocumentList({ kind, rows, parties }: FinanceDocumentListProps) {
+export function FinanceDocumentList({ kind, rows, parties, canEditInvoices = true, employeeId, financeManager = false }: FinanceDocumentListProps) {
   const [partyId, setPartyId] = useState("");
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
   const current = config[kind];
@@ -67,16 +70,29 @@ export function FinanceDocumentList({ kind, rows, parties }: FinanceDocumentList
           {filteredRows.map((row: any) => {
             const partyName = row[current.partyLabel === "Customer" ? "customer" : "vendor"]?.name || `Unknown ${current.partyLabel.toLowerCase()}`;
             const date = row[current.dateField];
+            const canEditRow = canEditInvoices && (row.status === "paid" ? financeManager : row.created_by === employeeId);
 
             if (kind === "invoice") return (
-              <Link key={row.id} href={`/app/finance/invoices/${row.id}`} className="flex items-center justify-between px-4 py-3 text-sm hover:bg-ink-50">
-                <div><p className="font-medium text-ink-800">{row.title}</p><p className="text-xs text-ink-400">Sales invoice · {row.invoice_number}</p><p className="text-ink-400">{partyName} · {current.dateLabel}: {date || "—"}</p></div>
-                <div className="text-right"><span className={`badge ${row.status === "paid" ? "bg-green-50 text-green-700" : row.status === "sent" ? "bg-blue-50 text-blue-700" : row.status === "reviewed" ? "bg-amber-50 text-amber-700" : "bg-ink-100 text-ink-500"}`}>{row.status}</span><p className="mt-1 text-xs text-ink-400">₹{Number(row.total_amount || 0).toFixed(2)}</p></div>
-              </Link>
+              <div key={row.id} className="flex items-center justify-between gap-4 px-4 py-3 text-sm hover:bg-ink-50">
+                <Link href={`/app/finance/invoices/${row.id}`} className="min-w-0 flex-1">
+                  <p className="font-medium text-ink-800">{row.title}</p>
+                  <p className="text-xs text-ink-400">Sales invoice · {row.invoice_number}</p>
+                  <p className="text-ink-400">{partyName} · {current.dateLabel}: {date || "—"}</p>
+                </Link>
+                <div className="flex items-center gap-4 text-right">
+                  <div>
+                    <span className={`badge ${row.status === "paid" ? "bg-green-50 text-green-700" : row.status === "sent" ? "bg-blue-50 text-blue-700" : row.status === "reviewed" ? "bg-amber-50 text-amber-700" : "bg-ink-100 text-ink-500"}`}>{row.status}</span>
+                    <p className="mt-1 text-xs text-ink-400">₹{Number(row.total_amount || 0).toFixed(2)}</p>
+                  </div>
+                  {canEditRow && <Link href={`/app/finance/invoices/${row.id}/edit`} className="btn-secondary inline-flex items-center gap-1" aria-label={`Edit ${row.title}`}>
+                    <Pencil size={14} /> Edit
+                  </Link>}
+                </div>
+              </div>
             );
 
             if (kind === "purchase-invoice") return (
-              <div key={row.id} className="flex items-center justify-between gap-4 px-4 py-3 text-sm hover:bg-ink-50"><Link href={`/app/finance/purchase-invoices/${row.id}`} className="min-w-0 flex-1"><p className="font-medium text-ink-800">{row.title}</p><p className="text-xs text-ink-400">{row.invoice_number}{row.vendor_invoice_number ? ` · Vendor ref ${row.vendor_invoice_number}` : ""}</p><p className="text-ink-400">{partyName} · {date}</p></Link><div className="flex items-center gap-4 text-right"><div><span className="badge bg-ink-100 text-ink-600">{row.status}</span><p className="mt-1 text-xs text-ink-400">₹{Number(row.total_amount || 0).toFixed(2)}</p></div>{row.status !== "cancelled" && <Link href={`/app/finance/purchase-invoices/${row.id}/edit`} className="btn-secondary inline-flex items-center gap-1"><Pencil size={14} /> Edit</Link>}</div></div>
+              <div key={row.id} className="flex items-center justify-between gap-4 px-4 py-3 text-sm hover:bg-ink-50"><Link href={`/app/finance/purchase-invoices/${row.id}`} className="min-w-0 flex-1"><p className="font-medium text-ink-800">{row.title}</p><p className="text-xs text-ink-400">{row.invoice_number}{row.vendor_invoice_number ? ` · Vendor ref ${row.vendor_invoice_number}` : ""}</p><p className="text-ink-400">{partyName} · {date}</p></Link><div className="flex items-center gap-4 text-right"><div><span className="badge bg-ink-100 text-ink-600">{row.status}</span><p className="mt-1 text-xs text-ink-400">₹{Number(row.total_amount || 0).toFixed(2)}</p></div>{canEditRow && row.status !== "cancelled" && <Link href={`/app/finance/purchase-invoices/${row.id}/edit`} className="btn-secondary inline-flex items-center gap-1"><Pencil size={14} /> Edit</Link>}</div></div>
             );
 
             if (kind === "purchase-order") return (
