@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Users, User, Building2, Tags, ShieldCheck, CalendarDays,
-  Plane, Receipt, BookOpen, GitBranch, Image as ImageIcon, BarChart3
+  Plane, Receipt, BookOpen, GitBranch, Image as ImageIcon, BarChart3, Mail
 } from "lucide-react";
 import { DashboardShell, type DashboardIdentity, type NavItem } from "@/components/layout/DashboardShell";
 import { createClient } from "@/lib/supabase/server";
@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { href: "/admin/account-heads", label: "Chart of Accounts", icon: "BookOpen", section: "Configuration" },
   { href: "/admin/approval-settings", label: "Approval Settings", icon: "GitBranch", section: "Configuration" },
   { href: "/admin/branding", label: "Branding", icon: "ImageIcon", section: "Configuration" },
+  { href: "/admin/email-settings", label: "Email Settings", icon: "Mail", section: "Configuration" },
   { href: "/admin/approvals", label: "Approvals", icon: "CheckSquare", section: "Activity" },
   { href: "/admin/notifications", label: "Notifications", icon: "ScrollText", section: "Activity" },
   { href: "/admin/reports", label: "Reports", icon: "BarChart3", section: "Activity" }
@@ -27,9 +28,14 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const [{ data: profile }, { data: employee }] = await Promise.all([
-    user ? supabase.from("users").select("role").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
+    user ? supabase.from("users").select("role, company_id").eq("id", user.id).maybeSingle() : Promise.resolve({ data: null }),
     user ? supabase.from("employees").select("name, email").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null })
   ]);
+  const { data: companyPlan } = profile?.company_id
+    ? await supabase.from("companies").select("subscription_plans(feature_bundle)").eq("id", profile.company_id).maybeSingle()
+    : { data: null };
+  const customEmailEnabled = (companyPlan?.subscription_plans as { feature_bundle?: Record<string, boolean> } | null)?.feature_bundle?.custom_email_domain === true;
+  const navItems = customEmailEnabled ? NAV : NAV.filter((item) => item.href !== "/admin/email-settings");
   const metadata = user?.user_metadata ?? {};
   const initialIdentity: DashboardIdentity | null = user ? {
     name: employee?.name ?? metadata.full_name ?? metadata.name ?? user.email ?? "User",
@@ -38,7 +44,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   } : null;
 
   return (
-    <DashboardShell navItems={NAV} title="Company Admin" initialIdentity={initialIdentity}>
+    <DashboardShell navItems={navItems} title="Company Admin" initialIdentity={initialIdentity}>
       {children}
     </DashboardShell>
   );

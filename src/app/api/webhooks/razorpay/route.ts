@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/razorpay";
 import { createAdminClient } from "@/lib/supabase/server";
-import { sendEmail, emailTemplates } from "@/lib/resend";
+import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
 
 // Module 1 §4.5 — on successful Pro payment: company -> Active, Auth user
 // created, invite email sent (same pattern as Basic approval).
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
   if (linkData?.properties?.action_link) {
     const tpl = emailTemplates.proPaymentSuccess(linkData.properties.action_link);
-    await sendEmail({ to: company.contact_email, ...tpl }).catch(() => {});
+    await sendPlatformEmail({ to: company.contact_email, ...tpl }).catch(() => {});
   }
 
   return NextResponse.json({ received: true });

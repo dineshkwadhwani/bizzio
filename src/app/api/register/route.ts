@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
-import { sendEmail, emailTemplates } from "@/lib/resend";
+import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
 
 const RegisterSchema = z.object({
   contact_email: z.string().email(),
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
 
   try {
     const tpl = emailTemplates.registrationReceived(company.name);
-    await sendEmail({ to: company.contact_email, ...tpl });
+    await sendPlatformEmail({ to: company.contact_email, ...tpl });
   } catch {
     // Non-fatal — registration still succeeds even if the acknowledgement email fails.
   }

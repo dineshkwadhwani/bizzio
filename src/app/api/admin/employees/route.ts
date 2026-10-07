@@ -3,7 +3,7 @@ import { z } from "zod";
 import { randomBytes } from "crypto";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
-import { sendEmail, emailTemplates } from "@/lib/resend";
+import { sendTenantEmail, emailTemplates } from "@/lib/resend";
 import { writeAuditLog } from "@/lib/audit-log";
 
 const EmployeeSchema = z.object({
@@ -60,7 +60,8 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
   const companyId = guard.profile.company_id;
 
-  const { data: company } = await admin.from("companies").select("name").eq("id", companyId).single();
+  const { data: company } = await admin.from("companies").select("name, resend_enabled, resend_api_key_encrypted, resend_from_name, resend_from_email, resend_reply_to, resend_domain_verified").eq("id", companyId).single();
+  if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });
 
   let permissionTemplateId: string | null = null;
   if (data.title_id) {
@@ -134,7 +135,7 @@ export async function POST(request: Request) {
       `${process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online"}/login`,
       temporaryPassword
     );
-    const { error: emailError } = await sendEmail({ to: data.email, ...tpl });
+    const { error: emailError } = await sendTenantEmail(company, { to: data.email, ...tpl });
     if (emailError) throw new Error(emailError.message);
   } catch {
     return NextResponse.json(

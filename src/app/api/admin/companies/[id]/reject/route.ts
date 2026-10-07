@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
-import { sendEmail, emailTemplates } from "@/lib/resend";
+import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .eq("id", company.id);
 
   const tpl = emailTemplates.companyRejected(reason);
-  await sendEmail({ to: company.contact_email, ...tpl }).catch(() => {});
+  await sendPlatformEmail({ to: company.contact_email, ...tpl }).catch(() => {});
 
   return NextResponse.json({ status: "rejected" });
 }

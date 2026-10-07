@@ -75,6 +75,15 @@ create table companies (
   gstin                       text,
   approval_hierarchy_depth    smallint not null default 1 check (approval_hierarchy_depth in (1,2)),
   subteam_feature_enabled     boolean not null default false,
+  -- Tenant-owned transactional email configuration. The API key must be
+  -- encrypted before it is stored by the application.
+  resend_enabled              boolean not null default false,
+  resend_api_key_encrypted    text,
+  resend_from_name            text,
+  resend_from_email           text,
+  resend_reply_to             text,
+  resend_domain_verified      boolean not null default false,
+  resend_configured_at        timestamptz,
   submitted_at                timestamptz not null default now(),
   approved_at                 timestamptz,
   activated_at                timestamptz,
@@ -1265,13 +1274,13 @@ insert into subscription_plans (name, offer_price, original_price, is_active, fe
 (
   'Basic', 0, 1999, true,
   '{"attendance_tracking": true, "leave_management": true, "timesheet": true, "dcr": true,
-    "expense_reimbursement": true, "accounting_vendor_po": false, "accounting_customer_invoice": false,
+    "expense_reimbursement": true, "custom_email_domain": false, "accounting_vendor_po": false, "accounting_customer_invoice": false,
     "gst_support": false, "bank_statement_import": false, "subteam_second_level": false}'::jsonb
 ),
 (
   'Pro', 1999, 4999, true,
   '{"attendance_tracking": true, "leave_management": true, "timesheet": true, "dcr": true,
-    "expense_reimbursement": true, "accounting_vendor_po": true, "accounting_customer_invoice": true,
+    "expense_reimbursement": true, "custom_email_domain": true, "accounting_vendor_po": true, "accounting_customer_invoice": true,
     "gst_support": true, "bank_statement_import": true, "subteam_second_level": false}'::jsonb
 );
 

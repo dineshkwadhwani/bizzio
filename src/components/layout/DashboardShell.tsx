@@ -17,6 +17,7 @@ import {
   Landmark,
   LayoutDashboard,
   LogOut,
+  Mail,
   Menu,
   PhoneCall,
   Plane,
@@ -54,7 +55,8 @@ const NAV_ICONS = {
   CheckSquare,
   Landmark,
   CreditCard,
-  ScrollText
+  ScrollText,
+  Mail
 } as const;
 
 export type NavItem = { href: string; label: string; icon: keyof typeof NAV_ICONS; section?: string };

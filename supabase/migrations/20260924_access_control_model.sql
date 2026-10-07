@@ -125,19 +125,19 @@ begin
   select id into pro_id from subscription_plans where lower(name) = 'pro' order by created_at limit 1;
   if pro_id is null then
     insert into subscription_plans (name, offer_price, original_price, is_active, feature_bundle)
-    values ('Pro', 1999, 4999, true, '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true}'::jsonb)
+    values ('Pro', 1999, 4999, true, '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true, "custom_email_domain": true}'::jsonb)
     returning id into pro_id;
   else
-    update subscription_plans set feature_bundle = '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true}'::jsonb where id = pro_id;
+    update subscription_plans set feature_bundle = '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true, "custom_email_domain": true}'::jsonb where id = pro_id;
   end if;
 
   select id into promax_id from subscription_plans where lower(name) = 'promax' order by created_at limit 1;
   if promax_id is null then
     insert into subscription_plans (name, offer_price, original_price, is_active, feature_bundle)
-    values ('ProMax', 2999, 6999, true, '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true}'::jsonb)
+    values ('ProMax', 2999, 6999, true, '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true, "custom_email_domain": true}'::jsonb)
     returning id into promax_id;
   else
-    update subscription_plans set feature_bundle = '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true}'::jsonb where id = promax_id;
+    update subscription_plans set feature_bundle = '{"hr": true, "expense": true, "finance": true, "timesheets": true, "dcr": true, "custom_email_domain": true}'::jsonb where id = promax_id;
   end if;
 
   select id into promax_id from subscription_plans where lower(name) = 'promax' limit 1;

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
-import { sendEmail, emailTemplates } from "@/lib/resend";
+import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
 import { createProPlanPaymentLink } from "@/lib/razorpay";
 
 // Module 1 §4.5 — SuperAdmin Approval & Activation Flow.
@@ -58,7 +58,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (linkData?.properties?.action_link) {
       const tpl = emailTemplates.companyApprovedBasic(linkData.properties.action_link);
-      await sendEmail({ to: company.contact_email, ...tpl }).catch(() => {});
+      await sendPlatformEmail({ to: company.contact_email, ...tpl }).catch(() => {});
     }
 
     return NextResponse.json({ status: "active" });
@@ -86,7 +86,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   });
 
   const tpl = emailTemplates.companyApprovedProPaymentLink(link.short_url);
-  await sendEmail({ to: company.contact_email, ...tpl }).catch(() => {});
+  await sendPlatformEmail({ to: company.contact_email, ...tpl }).catch(() => {});
 
   return NextResponse.json({ status: "payment_pending", paymentUrl: link.short_url });
 }
