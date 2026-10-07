@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { href: "/admin/account-heads", label: "Chart of Accounts", icon: "BookOpen", section: "Configuration" },
   { href: "/admin/approval-settings", label: "Approval Settings", icon: "GitBranch", section: "Configuration" },
   { href: "/admin/branding", label: "Branding", icon: "ImageIcon", section: "Configuration" },
+  { href: "/admin/notification-settings", label: "Notification Settings", icon: "ScrollText", section: "Configuration" },
   { href: "/admin/email-settings", label: "Email Settings", icon: "Mail", section: "Configuration" },
   { href: "/admin/approvals", label: "Approvals", icon: "CheckSquare", section: "Activity" },
   { href: "/admin/notifications", label: "Notifications", icon: "ScrollText", section: "Activity" },

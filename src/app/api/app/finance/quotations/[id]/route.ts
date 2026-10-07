@@ -13,6 +13,7 @@ const LineItemSchema = z.object({
 });
 
 const UpdateSchema = z.object({
+  title: z.string().trim().min(1).optional(),
   customer_id: z.string().min(1).optional(),
   status: z.enum(["draft", "reviewed", "sent", "accepted", "rejected", "expired"]).optional(),
   lines: z.array(LineItemSchema).optional(),
@@ -64,10 +65,15 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
+    const { data: company } = await supabase
+      .from("companies")
+      .select("name, logo_url")
+      .eq("id", guard.employee.company_id)
+      .single();
     const attachmentUrl = quotation.attachment_path
       ? (await supabase.storage.from("transaction-documents").createSignedUrl(quotation.attachment_path, 3600)).data?.signedUrl ?? null
       : null;
-    return NextResponse.json({ quotation: { ...quotation, attachment_url: attachmentUrl }, lineItems: lineItems ?? [] });
+    return NextResponse.json({ quotation: { ...quotation, attachment_url: attachmentUrl }, lineItems: lineItems ?? [], company: company ?? null });
   } catch (error) {
     return error as Response;
   }
@@ -104,6 +110,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
       updates.customer_id = parsed.data.customer_id;
     }
+    if (parsed.data.title !== undefined) updates.title = parsed.data.title.trim();
 
     if (parsed.data.status) {
       updates.status = parsed.data.status;

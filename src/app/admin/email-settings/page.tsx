@@ -27,6 +27,7 @@ export default function EmailSettingsPage() {
   const [apiKey, setApiKey] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     fetch("/api/app/settings/email")
@@ -50,13 +51,36 @@ export default function EmailSettingsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...settings, apiKey: apiKey || undefined })
     });
-    const data = await response.json();
+    const data = await readResponse(response);
     setMessage(response.ok ? "Email settings saved." : data.error ?? "Could not save email settings.");
     if (response.ok) {
       setApiKey("");
-      setSettings((current) => ({ ...current, configured: true, domainVerified: data.domainVerified }));
+      setSettings((current) => ({ ...current, configured: true, domainVerified: data.domainVerified === true }));
     }
     setSaving(false);
+  }
+
+  async function sendTestEmail() {
+    setTesting(true);
+    setMessage("Sending test email… Please wait.");
+    try {
+      const response = await fetch("/api/app/settings/email", { method: "POST" });
+      const data = await readResponse(response);
+      setMessage(response.ok ? `✓ Test email sent successfully to ${data.to}.` : `✕ ${data.error ?? "Could not send the test email."}`);
+    } catch {
+      setMessage("✕ Could not reach the email service. Please try again.");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function readResponse(response: Response) {
+    const text = await response.text();
+    try {
+      return JSON.parse(text) as { error?: string; to?: string; domainVerified?: boolean };
+    } catch {
+      return { error: `Server returned an unexpected error (${response.status}).` };
+    }
   }
 
   return (
@@ -93,8 +117,25 @@ export default function EmailSettingsPage() {
         <div className="rounded-lg bg-ink-50 p-3 text-sm text-ink-600">
           {settings.domainVerified ? "Resend verified this sender domain." : "Saving with email enabled will validate the API key and sender domain with Resend."}
         </div>
-        <button type="button" onClick={save} disabled={saving} className="btn-primary">{saving ? "Validating…" : "Save Email Settings"}</button>
-        {message && <p className="text-sm text-ink-600">{message}</p>}
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={save} disabled={saving || testing} className="btn-primary">{saving ? "Validating…" : "Save Email Settings"}</button>
+          <button type="button" onClick={sendTestEmail} disabled={saving || testing || !settings.enabled || !settings.configured || !settings.domainVerified} className="btn-secondary">{testing ? "Sending…" : "Send Test Email"}</button>
+        </div>
+        {message && (
+          <div
+            role="status"
+            aria-live="polite"
+            className={`rounded-lg border p-3 text-sm ${
+              message.startsWith("✓")
+                ? "border-green-200 bg-green-50 text-green-800"
+                : message.startsWith("✕")
+                  ? "border-red-200 bg-red-50 text-red-800"
+                  : "border-brand-200 bg-brand-50 text-brand-800"
+            }`}
+          >
+            {message}
+          </div>
+        )}
       </div>
       </>
       )}

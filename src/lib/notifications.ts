@@ -9,11 +9,46 @@ export type NotificationPayload = {
   entityId?: string | null;
 };
 
+export async function isCompanyNotificationEnabled(companyId: string, notificationType: string) {
+  const supabase = createAdminClient();
+  const [{ data: catalog }, { data: globalSetting }, { data: companySetting }] = await Promise.all([
+    supabase.from("notification_catalog").select("default_enabled").eq("notification_type", notificationType).maybeSingle(),
+    supabase.from("notification_global_settings").select("enabled").eq("notification_type", notificationType).maybeSingle(),
+    supabase.from("company_notification_settings").select("enabled").eq("company_id", companyId).eq("notification_type", notificationType).maybeSingle()
+  ]);
+  return globalSetting?.enabled !== false && catalog?.default_enabled !== false && companySetting?.enabled !== false;
+}
+
+async function notificationEnabled(supabase: ReturnType<typeof createAdminClient>, userId: string, notificationType: string) {
+  const [{ data: user }, { data: catalog }, { data: globalSetting }] = await Promise.all([
+    supabase.from("users").select("company_id").eq("id", userId).maybeSingle(),
+    supabase.from("notification_catalog").select("default_enabled").eq("notification_type", notificationType).maybeSingle(),
+    supabase.from("notification_global_settings").select("enabled").eq("notification_type", notificationType).maybeSingle()
+  ]);
+
+  // Unknown notification types remain deliverable until they are added to the
+  // catalog, preserving backwards compatibility while new types are rolled out.
+  if (globalSetting?.enabled === false || catalog?.default_enabled === false) return false;
+  if (!user?.company_id) return true;
+
+  const { data: companySetting } = await supabase
+    .from("company_notification_settings")
+    .select("enabled")
+    .eq("company_id", user.company_id)
+    .eq("notification_type", notificationType)
+    .maybeSingle();
+  return companySetting?.enabled !== false;
+}
+
 export async function sendNotification(payload: NotificationPayload) {
   // Notifications may be addressed to another user (for example, an
   // employee notifying their manager), so server-side delivery must bypass
   // the caller's own-user RLS scope.
   const supabase = createAdminClient();
+
+  if (!(await notificationEnabled(supabase, payload.userId, payload.type))) {
+    return { ok: true, inserted: false, pushSent: false, disabled: true };
+  }
 
   const { error: insertError } = await supabase.from("notifications").insert({
     user_id: payload.userId,

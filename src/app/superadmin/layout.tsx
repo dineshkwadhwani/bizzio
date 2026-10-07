@@ -6,7 +6,8 @@ const NAV: NavItem[] = [
   { href: "/superadmin/dashboard", label: "Dashboard", icon: "LayoutDashboard" },
   { href: "/superadmin/companies", label: "Companies", icon: "Building2" },
   { href: "/superadmin/plans", label: "Plans", icon: "CreditCard" },
-  { href: "/superadmin/audit-log", label: "Audit Log", icon: "ScrollText" }
+  { href: "/superadmin/audit-log", label: "Audit Log", icon: "ScrollText" },
+  { href: "/superadmin/notifications", label: "Notifications", icon: "ScrollText" }
 ];
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {

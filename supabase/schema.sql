@@ -868,6 +868,33 @@ create table notifications (
   created_at  timestamptz not null default now()
 );
 
+create table notification_catalog (
+  notification_type text primary key,
+  name             text not null,
+  description      text not null,
+  category         text not null,
+  default_enabled  boolean not null default true,
+  created_at       timestamptz not null default now()
+);
+
+create table notification_global_settings (
+  notification_type text primary key references notification_catalog(notification_type) on delete cascade,
+  enabled          boolean not null default true,
+  updated_by       uuid references users(id),
+  updated_at       timestamptz not null default now()
+);
+
+create table company_notification_settings (
+  company_id       uuid not null references companies(id) on delete cascade,
+  notification_type text not null references notification_catalog(notification_type) on delete cascade,
+  enabled          boolean not null default true,
+  updated_by       uuid references users(id),
+  updated_at       timestamptz not null default now(),
+  primary key (company_id, notification_type)
+);
+
+create index idx_company_notification_settings_type on company_notification_settings(notification_type);
+
 create table push_subscriptions (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references users(id) on delete cascade,
@@ -875,6 +902,14 @@ create table push_subscriptions (
   keys        jsonb not null,
   created_at  timestamptz not null default now()
 );
+
+insert into notification_catalog (notification_type, name, description, category)
+values ('quotation_email_send', 'Send quotation by email', 'Allow users to email a quotation directly to the selected customer.', 'Sales')
+on conflict (notification_type) do nothing;
+
+insert into notification_global_settings (notification_type, enabled)
+values ('quotation_email_send', true)
+on conflict (notification_type) do nothing;
 
 -- ============================================================================
 -- 8. HELPER FUNCTIONS (security definer, used by RLS policies)
@@ -1264,6 +1299,10 @@ create policy plans_write_superadmin on subscription_plans for all
 -- line-item child tables inherit tenant scoping via their parent's company_id join
 alter table notifications enable row level security;
 create policy notifications_own on notifications for select using (user_id = auth.uid());
+alter table notification_catalog enable row level security;
+create policy notification_catalog_select_authenticated on notification_catalog for select using (auth.uid() is not null);
+alter table notification_global_settings enable row level security;
+alter table company_notification_settings enable row level security;
 alter table push_subscriptions enable row level security;
 create policy push_subs_own on push_subscriptions for all using (user_id = auth.uid());
 

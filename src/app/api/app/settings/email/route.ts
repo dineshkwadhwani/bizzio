@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
-import { decryptTenantApiKey, encryptTenantApiKey, validateResendTenantConfig } from "@/lib/resend";
+import { decryptTenantApiKey, encryptTenantApiKey, sendTenantTestEmail, tenantEmailConfigurationTest, validateResendTenantConfig } from "@/lib/resend";
 
 const EmailSettingsSchema = z.object({
   apiKey: z.string().trim().min(1).max(500).optional(),
@@ -48,29 +48,63 @@ export async function PUT(request: Request) {
     .select("resend_api_key_encrypted").eq("id", guard.profile.company_id).single();
   if (!current) return NextResponse.json({ error: "Company not found" }, { status: 404 });
 
-  let encryptedKey = current.resend_api_key_encrypted;
-  let apiKey = parsed.data.apiKey;
-  if (apiKey) encryptedKey = encryptTenantApiKey(apiKey);
-  else if (encryptedKey) apiKey = decryptTenantApiKey(encryptedKey);
+  try {
+    let encryptedKey = current.resend_api_key_encrypted;
+    let apiKey = parsed.data.apiKey;
+    if (apiKey) encryptedKey = encryptTenantApiKey(apiKey);
+    else if (encryptedKey) apiKey = decryptTenantApiKey(encryptedKey);
 
-  let domainVerified = false;
-  if (apiKey) {
-    const validation = await validateResendTenantConfig(apiKey, parsed.data.fromEmail, guard.user.email ?? parsed.data.fromEmail);
-    domainVerified = validation.valid;
-    if (parsed.data.enabled && !validation.valid) return NextResponse.json({ error: validation.message }, { status: 400 });
-  } else if (parsed.data.enabled) {
-    return NextResponse.json({ error: "Enter a Resend API key before enabling tenant email." }, { status: 400 });
+    let domainVerified = false;
+    if (apiKey) {
+      const validation = await validateResendTenantConfig(apiKey, parsed.data.fromEmail, guard.user.email ?? parsed.data.fromEmail);
+      domainVerified = validation.valid;
+      if (parsed.data.enabled && !validation.valid) return NextResponse.json({ error: validation.message }, { status: 400 });
+    } else if (parsed.data.enabled) {
+      return NextResponse.json({ error: "Enter a Resend API key before enabling tenant email." }, { status: 400 });
+    }
+
+    const { error } = await guard.supabase.from("companies").update({
+      resend_enabled: parsed.data.enabled,
+      resend_api_key_encrypted: encryptedKey,
+      resend_from_name: parsed.data.fromName,
+      resend_from_email: parsed.data.fromEmail,
+      resend_reply_to: parsed.data.replyTo || null,
+      resend_domain_verified: domainVerified,
+      resend_configured_at: new Date().toISOString()
+    }).eq("id", guard.profile.company_id);
+    if (error) return NextResponse.json({ error: "Could not save email settings." }, { status: 500 });
+    return NextResponse.json({ saved: true, domainVerified });
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Could not save email settings."
+    }, { status: 500 });
   }
+}
 
-  const { error } = await guard.supabase.from("companies").update({
-    resend_enabled: parsed.data.enabled,
-    resend_api_key_encrypted: encryptedKey,
-    resend_from_name: parsed.data.fromName,
-    resend_from_email: parsed.data.fromEmail,
-    resend_reply_to: parsed.data.replyTo || null,
-    resend_domain_verified: domainVerified,
-    resend_configured_at: new Date().toISOString()
-  }).eq("id", guard.profile.company_id);
-  if (error) return NextResponse.json({ error: "Could not save email settings." }, { status: 500 });
-  return NextResponse.json({ saved: true, domainVerified });
+export async function POST(request: Request) {
+  let guard;
+  try { guard = await requireRole("company_admin"); } catch (res) { return res as Response; }
+  if (!(await requireCustomEmailFeature(guard))) return NextResponse.json({ error: "Custom email domains are available on the Pro and ProMax plans." }, { status: 403 });
+
+  const { data: company } = await guard.supabase.from("companies")
+    .select("name, logo_url, resend_enabled, resend_api_key_encrypted, resend_from_name, resend_from_email, resend_reply_to, resend_domain_verified")
+    .eq("id", guard.profile.company_id).single();
+  if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });
+  if (!guard.user.email) return NextResponse.json({ error: "The company admin does not have an email address." }, { status: 400 });
+
+  try {
+    const template = tenantEmailConfigurationTest(
+      company.name,
+      company.resend_from_name ?? "",
+      company.resend_from_email ?? "",
+      company.resend_reply_to,
+      company.logo_url,
+      process.env.NEXT_PUBLIC_APP_URL ?? "https://bizzio.online"
+    );
+    const result = await sendTenantTestEmail(company, { to: guard.user.email, ...template });
+    if (result.error) return NextResponse.json({ error: result.error.message }, { status: 502 });
+    return NextResponse.json({ sent: true, to: guard.user.email });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not send the test email." }, { status: 502 });
+  }
 }
