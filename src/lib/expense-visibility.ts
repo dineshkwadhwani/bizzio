@@ -15,7 +15,7 @@ export async function getExpenseClaimVisibility(supabase: any, employee: Expense
     : employee?.permission_templates;
   const toggles = effectiveToggles(template?.toggles, employee?.permission_overrides);
   const isManager = ["manager", "director", "ceo"].includes(employee?.hierarchy_role ?? "");
-  const canApprove = ["manager", "director"].includes(employee?.hierarchy_role ?? "") && hasPermission(toggles, "approve_expenses");
+  const canApprove = ["manager", "director", "ceo"].includes(employee?.hierarchy_role ?? "") && hasPermission(toggles, "approve_expenses");
   const canReviewAsFinance = Boolean(employee?.is_finance) && (
     hasPermission(toggles, "finance_expense_claims") || hasPermission(toggles, "pay_expenses")
   );

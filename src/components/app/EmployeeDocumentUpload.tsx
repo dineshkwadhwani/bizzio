@@ -22,17 +22,21 @@ export function EmployeeDocumentUpload({ employeeId, companyId, documents }: {
   const [documentType, setDocumentType] = useState("aadhar");
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function upload(type: string, event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     setUploading(true);
     setMessage(null);
-    const path = `${companyId}/${employeeId}/${Date.now()}-${file.name}`;
+    setError(null);
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `${companyId}/${employeeId}/${Date.now()}-${safeName}`;
     const { data, error } = await supabase.storage.from("employee-documents").upload(path, file, { upsert: false });
     if (error || !data) {
-      setMessage("Upload failed. Please try again.");
+      setError(error?.message || "Upload failed. Please try again.");
       setUploading(false);
+      event.target.value = "";
       return;
     }
     const { error: saveError } = await supabase.from("employee_documents").insert({
@@ -42,7 +46,12 @@ export function EmployeeDocumentUpload({ employeeId, companyId, documents }: {
       file_url: data.path,
       uploaded_by: employeeId
     });
-    setMessage(saveError ? "The file uploaded but could not be saved." : "Document uploaded.");
+    if (saveError) {
+      await supabase.storage.from("employee-documents").remove([data.path]);
+      setError(`The file could not be linked to your profile: ${saveError.message}`);
+    } else {
+      setMessage("Document uploaded.");
+    }
     setUploading(false);
     event.target.value = "";
     if (!saveError) window.location.reload();
@@ -50,6 +59,7 @@ export function EmployeeDocumentUpload({ employeeId, companyId, documents }: {
 
   return (
     <div className="card mt-6">
+      {error && <p className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{error}</p>}
       <h2 className="font-semibold text-ink-900">Required Documents</h2>
       <p className="mt-1 text-sm text-ink-500">Aadhaar and PAN are mandatory. Please upload clear, readable copies.</p>
       <div className="mt-4 space-y-3">
@@ -76,7 +86,7 @@ export function EmployeeDocumentUpload({ employeeId, companyId, documents }: {
           );
         })}
       </div>
-      {message && <p className="mt-3 text-sm text-ink-600">{message}</p>}
+      {message && <p className="mt-3 text-sm text-green-600" role="status">{message}</p>}
     </div>
   );
 }

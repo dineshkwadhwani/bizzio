@@ -44,7 +44,7 @@ export async function POST(
   const requiredApprovalPermission = step?.entity_type === "leave_request" ? "approve_leave" : step?.entity_type === "expense_claim" ? "approve_expenses" : null;
   const hasRequiredApprovalPermission = guard.profile.role === "company_admin" || !requiredApprovalPermission || approverToggles[requiredApprovalPermission] === true;
   const isAuthorized = step && step.company_id === approver.company_id && step.status === "pending" && hasRequiredApprovalPermission &&
-    (guard.profile.role === "company_admin" || (approver.status === "active" && !approver.left_at && ["manager", "director"].includes(approver.hierarchy_role ?? ""))) && (
+    (guard.profile.role === "company_admin" || (approver.status === "active" && !approver.left_at && ["manager", "director", "ceo"].includes(approver.hierarchy_role ?? ""))) && (
     step.approver_employee_id === approver.id ||
     step.approver_user_id === guard.user.id
   );
