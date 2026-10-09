@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const UpdateSchema = z.object({
   notificationType: z.string().min(1),
   enabled: z.boolean()

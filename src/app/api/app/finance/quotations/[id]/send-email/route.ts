@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { requireSales } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { isCompanyNotificationEnabled } from "@/lib/notifications";
@@ -6,10 +7,13 @@ import { emailTemplates, sendTenantEmail } from "@/lib/resend";
 
 const NOTIFICATION_TYPE = "quotation_email_send";
 const REPLY_TO = "operations@tracksoftsolutions.com";
+const SendSchema = z.object({ sendCopy: z.boolean().default(false) });
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
     const guard = await requireSales("sales_quotations");
+    const parsed = SendSchema.safeParse(await request.json().catch(() => ({})));
+    if (!parsed.success) return NextResponse.json({ error: "Invalid email options." }, { status: 400 });
     if (!(await isCompanyNotificationEnabled(guard.employee.company_id, NOTIFICATION_TYPE))) {
       return NextResponse.json({ error: "Sending quotations by email is disabled in Notification Settings." }, { status: 403 });
     }
@@ -63,7 +67,12 @@ export async function POST(_request: Request, { params }: { params: { id: string
       grandTotal: totals.total
     });
 
-    const result = await sendTenantEmail(company, { to: customer.contact_email, replyTo: REPLY_TO, ...template });
+    const result = await sendTenantEmail(company, {
+      to: customer.contact_email,
+      bcc: parsed.data.sendCopy && guard.user.email ? [guard.user.email] : undefined,
+      replyTo: REPLY_TO,
+      ...template
+    });
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 502 });
     return NextResponse.json({ sent: true, to: customer.contact_email });
   } catch (error) {

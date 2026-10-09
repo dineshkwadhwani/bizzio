@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { formatDate, formatDateTime } from "@/lib/utils";
 
 export default function QuotationDetailPage() {
   const params = useParams();
@@ -17,9 +18,9 @@ export default function QuotationDetailPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [quotationEmailEnabled, setQuotationEmailEnabled] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
   const [emailMessage, setEmailMessage] = useState<string | null>(null);
+  const [sendCopy, setSendCopy] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -35,11 +36,6 @@ export default function QuotationDetailPage() {
       setDraftLines(json.lineItems || []);
       const customerResponse = await fetch("/api/app/finance/customers");
       if (customerResponse.ok) setCustomers(await customerResponse.json());
-      const notificationResponse = await fetch("/api/app/settings/notifications");
-      if (notificationResponse.ok) {
-        const notificationData = await notificationResponse.json();
-        setQuotationEmailEnabled(notificationData.notifications?.some((item: any) => item.notification_type === "quotation_email_send" && item.effectiveEnabled) ?? false);
-      }
     }
     if (params.id) load();
   }, [params.id]);
@@ -125,7 +121,11 @@ export default function QuotationDetailPage() {
     setEmailSending(true);
     setEmailMessage("Sending quotation email…");
     try {
-      const response = await fetch(`/api/app/finance/quotations/${params.id}/send-email`, { method: "POST" });
+      const response = await fetch(`/api/app/finance/quotations/${params.id}/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendCopy })
+      });
       const result = await response.json();
       setEmailMessage(response.ok ? `Quotation email sent successfully to ${result.to}.` : result.error ?? "Could not send quotation email.");
     } catch {
@@ -162,7 +162,7 @@ export default function QuotationDetailPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm uppercase tracking-wide text-ink-500">Quotation</p>
-          <input className="input mt-1 text-xl font-bold" value={draftTitle} onChange={(event) => setDraftTitle(event.target.value)} aria-label="Quotation title" />
+          <h1 className="mt-1 text-xl font-bold text-ink-900">{draftTitle || "Untitled quotation"}</h1>
           <p className="text-sm text-ink-500">{data.quotation.quo_number}</p>
         </div>
         <span className={`badge ${data.quotation.status === "accepted" ? "bg-green-50 text-green-700" : data.quotation.status === "rejected" ? "bg-red-50 text-red-700" : data.quotation.status === "expired" ? "bg-amber-50 text-amber-700" : data.quotation.status === "sent" ? "bg-blue-50 text-blue-700" : data.quotation.status === "reviewed" ? "bg-amber-50 text-amber-700" : "bg-ink-100 text-ink-500"}`}>
@@ -173,6 +173,16 @@ export default function QuotationDetailPage() {
       <div className="card mt-6 space-y-6">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
+            <label className="label" htmlFor="quotation-title">Quotation title</label>
+            <input
+              id="quotation-title"
+              className="input mt-1"
+              value={draftTitle}
+              onChange={(event) => setDraftTitle(event.target.value)}
+              placeholder="Enter quotation title"
+            />
+          </div>
+          <div>
             <label className="label">Customer</label>
             <select className="input mt-1" value={draftCustomerId} onChange={(event) => setDraftCustomerId(event.target.value)} aria-label="Quotation customer">
               {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}{customer.contact_email ? ` — ${customer.contact_email}` : ""}</option>)}
@@ -180,7 +190,7 @@ export default function QuotationDetailPage() {
           </div>
           <div>
             <label className="label">Created</label>
-            <p className="text-ink-800">{new Date(data.quotation.created_at).toLocaleString()}</p>
+            <p className="text-ink-800">{formatDateTime(data.quotation.created_at)}</p>
           </div>
         </div>
         <div className="rounded border border-ink-100 bg-ink-50 p-4"><label className="label">Supporting document</label>{data.quotation.attachment_name && data.quotation.attachment_url && <p className="mt-1 text-sm"><a className="text-brand-600 underline" href={data.quotation.attachment_url} target="_blank" rel="noreferrer">📎 {data.quotation.attachment_name}</a></p>}<input className="mt-2 block text-sm" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" disabled={uploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadAttachment(file); }} /></div>
@@ -232,11 +242,6 @@ export default function QuotationDetailPage() {
               {loading ? "Updating…" : "Mark Reviewed"}
             </button>
           )}
-          {data.quotation.status === "reviewed" && (
-            <button type="button" className="btn-primary flex-1" disabled={loading} onClick={() => updateStatus("sent")}>
-              {loading ? "Sending…" : "Send Quotation"}
-            </button>
-          )}
           {data.quotation.status === "sent" && (
             <>
               <button type="button" className="btn-primary flex-1" disabled={loading} onClick={() => updateStatus("accepted")}>
@@ -250,19 +255,14 @@ export default function QuotationDetailPage() {
               </button>
             </>
           )}
-          {quotationEmailEnabled && (
-            <button type="button" className="btn-secondary w-full" disabled={loading || emailSending} onClick={() => void sendQuotationEmail()}>
-              {emailSending ? "Sending quotation email…" : "Email Quotation to Customer"}
-            </button>
-          )}
           {emailMessage && <p role="status" aria-live="polite" className={`w-full rounded-lg px-3 py-2 text-sm ${emailMessage.startsWith("Quotation email sent") ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>{emailMessage}</p>}
           {data.quotation.status === "sent" && (
             <div className="w-full rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-              Quotation status is Sent. Use “Email Quotation to Customer” to send the quotation details by email.
+              Quotation status is Sent. Use “Review Quotation Email” to review and send the quotation details by email.
             </div>
           )}
-        </div>
       </div>
+    </div>
       {reviewOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-900/50 p-4 md:p-10" role="dialog" aria-modal="true" aria-label="Quotation email preview">
           <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -275,10 +275,46 @@ export default function QuotationDetailPage() {
                 {data.company?.logo_url ? <img src={data.company.logo_url} alt={`${data.company.name} logo`} className="mb-6 max-h-16 max-w-[220px]" /> : <p className="mb-6 text-2xl font-bold text-ink-900">{data.company?.name}</p>}
                 <p className="text-base">Dear {selectedCustomer?.contact_person || selectedCustomer?.name || "Customer"},</p>
                 <p className="mt-4 text-sm leading-6 text-ink-600">Please find below the quotation prepared for you by <strong>{data.company?.name}</strong>.</p>
-                <div className="mt-5 grid gap-3 rounded-lg bg-ink-50 p-4 text-sm md:grid-cols-3"><div><span className="block text-xs text-ink-400">Quotation number</span><strong>{data.quotation.quo_number}</strong></div><div><span className="block text-xs text-ink-400">Title</span><strong>{draftTitle}</strong></div><div><span className="block text-xs text-ink-400">Date</span><strong>{new Date(data.quotation.created_at).toLocaleDateString("en-IN", { dateStyle: "long" })}</strong></div></div>
+                <div className="mt-5 grid gap-3 rounded-lg bg-ink-50 p-4 text-sm md:grid-cols-3"><div><span className="block text-xs text-ink-400">Quotation number</span><strong>{data.quotation.quo_number}</strong></div><div><span className="block text-xs text-ink-400">Title</span><strong>{draftTitle}</strong></div><div><span className="block text-xs text-ink-400">Date</span><strong>{formatDate(data.quotation.created_at)}</strong></div></div>
                 <div className="mt-6 overflow-hidden rounded-lg border border-ink-100"><table className="min-w-full text-left text-xs"><thead className="bg-ink-900 text-white"><tr><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2 text-right">Tax</th><th className="px-3 py-2 text-right">Amount</th></tr></thead><tbody>{draftLines.map((line: any, index: number) => <tr key={line.id ?? index} className="border-t border-ink-100"><td className="px-3 py-2">{line.description}</td><td className="px-3 py-2 text-right">{line.qty}</td><td className="px-3 py-2 text-right">₹{Number(line.rate || 0).toFixed(2)}</td><td className="px-3 py-2 text-right">{Number(line.gst_percent || 0).toFixed(2)}%</td><td className="px-3 py-2 text-right font-semibold">₹{(Number(line.qty || 0) * Number(line.rate || 0) * (1 + Number(line.gst_percent || 0) / 100)).toFixed(2)}</td></tr>)}</tbody></table></div>
                 <div className="ml-auto mt-5 max-w-xs space-y-2 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>₹{totals.base.toFixed(2)}</span></div><div className="flex justify-between"><span>Taxes</span><span>₹{totals.gst.toFixed(2)}</span></div><div className="flex justify-between border-t-2 border-ink-900 pt-2 font-bold"><span>Grand total</span><span>₹{totals.total.toFixed(2)}</span></div></div>
                 <p className="mt-7 text-sm leading-6 text-ink-600">Please let us know if you have any questions or would like to discuss this quotation.</p><p className="mt-5 text-sm leading-6">Warm regards,<br /><strong>Operations</strong><br />{data.company?.name}</p>
+              </div>
+            </div>
+            <div className="border-t border-ink-100 bg-white px-6 py-4">
+              <p className="text-sm text-ink-700">
+                This quotation will be sent to <strong>{selectedCustomer?.contact_email || "the customer email address"}</strong>.
+              </p>
+              {emailMessage && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className={`mt-3 rounded-lg px-3 py-2 text-sm ${emailMessage.startsWith("Quotation email sent") ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}
+                >
+                  {emailMessage}
+                </p>
+              )}
+              <label className="mt-3 flex items-start gap-2 text-sm text-ink-700">
+                <input
+                  type="checkbox"
+                  checked={sendCopy}
+                  onChange={(event) => setSendCopy(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  Send a copy to me
+                  <span className="block text-xs text-ink-500">The copy will be sent to your signed-in email address.</span>
+                </span>
+              </label>
+              <div className="mt-4 flex justify-end">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={emailSending}
+                  onClick={() => void sendQuotationEmail()}
+                >
+                  {emailSending ? "Sending…" : "Send Quotation Email"}
+                </button>
               </div>
             </div>
           </div>

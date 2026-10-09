@@ -3,6 +3,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
 type EmailOptions = {
   to: string;
+  cc?: string[];
+  bcc?: string[];
   subject: string;
   html: string;
   replyTo?: string;
@@ -120,6 +122,8 @@ export async function sendPlatformEmail(opts: EmailOptions) {
   return resend.emails.send({
     from: platformFrom(),
     to: opts.to,
+    ...(opts.cc?.length ? { cc: opts.cc } : {}),
+    ...(opts.bcc?.length ? { bcc: opts.bcc } : {}),
     subject: opts.subject,
     html: opts.html,
     ...(opts.replyTo ? { replyTo: opts.replyTo } : {})
@@ -149,6 +153,8 @@ export async function sendTenantEmail(config: TenantEmailConfig, opts: EmailOpti
         ? { replyTo: opts.replyTo ?? config.resend_reply_to! }
         : {}),
       to: opts.to,
+      ...(opts.cc?.length ? { cc: opts.cc } : {}),
+      ...(opts.bcc?.length ? { bcc: opts.bcc } : {}),
       subject: opts.subject,
       html: opts.html
     });
@@ -169,6 +175,8 @@ export async function sendTenantTestEmail(config: TenantEmailConfig, opts: Email
     from: `${config.resend_from_name} <${config.resend_from_email}>`,
     ...(config.resend_reply_to || opts.replyTo ? { replyTo: opts.replyTo ?? config.resend_reply_to! } : {}),
     to: opts.to,
+    ...(opts.cc?.length ? { cc: opts.cc } : {}),
+    ...(opts.bcc?.length ? { bcc: opts.bcc } : {}),
     subject: opts.subject,
     html: opts.html
   });

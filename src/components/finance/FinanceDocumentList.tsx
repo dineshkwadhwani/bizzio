@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Pencil } from "lucide-react";
 import { DeletePurchaseOrderButton } from "@/components/finance/DeletePurchaseOrderButton";
 import { useMemo, useState } from "react";
+import { formatDate } from "@/lib/utils";
 
 type DocumentKind = "invoice" | "sales-order" | "quotation" | "purchase-invoice" | "purchase-order";
 
@@ -31,7 +32,7 @@ function dateValue(row: any, field: string) {
 
 function displayDate(value: string | null | undefined) {
   if (!value) return "—";
-  return new Date(value).toLocaleDateString();
+  return formatDate(value);
 }
 
 export function FinanceDocumentList({ kind, rows, parties, canEditInvoices = true, employeeId, financeManager = false }: FinanceDocumentListProps) {
