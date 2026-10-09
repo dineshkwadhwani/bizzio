@@ -77,6 +77,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
+    const { data: company } = await supabase.from("companies").select("name, logo_url").eq("id", guard.employee.company_id).single();
     const [{ data: advanceApplications, error: advanceApplicationError }, { data: receipt }] = await Promise.all([
       supabase
       .from("customer_advance_applications")
@@ -88,7 +89,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     ]);
     if (advanceApplicationError) return NextResponse.json({ error: advanceApplicationError.message }, { status: 500 });
     const canEdit = canEditInvoices(guard.employee as any) && (invoice.status === "paid" ? isFinanceManager(guard.employee as any) : invoice.created_by === guard.employee.id);
-    return NextResponse.json({ invoice, lineItems: lineItems ?? [], advanceApplications: advanceApplications ?? [], receipt: receipt ?? null, canEdit });
+    return NextResponse.json({ invoice, lineItems: lineItems ?? [], advanceApplications: advanceApplications ?? [], receipt: receipt ?? null, canEdit, company });
   } catch (error) {
     return error as Response;
   }

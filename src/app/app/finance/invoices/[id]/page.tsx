@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { formatDate } from "@/lib/utils";
 
 export default function InvoiceDetailPage() {
   const params = useParams();
@@ -20,6 +21,10 @@ export default function InvoiceDetailPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailMessage, setEmailMessage] = useState<string | null>(null);
+  const [sendCopy, setSendCopy] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -29,7 +34,7 @@ export default function InvoiceDetailPage() {
         setError(json.error || "Unable to load invoice.");
         return;
       }
-      setData({ invoice: json.invoice, lineItems: json.lineItems || [], advanceApplications: json.advanceApplications || [], canEdit: json.canEdit });
+      setData({ invoice: json.invoice, lineItems: json.lineItems || [], advanceApplications: json.advanceApplications || [], canEdit: json.canEdit, company: json.company });
       const advanceApplied = (json.advanceApplications || []).reduce((sum: number, application: any) => sum + Number(application.amount || 0), 0);
       setAmountReceived(String(Math.max(0, Number(json.invoice.total_amount || 0) - advanceApplied).toFixed(2)));
       const attachmentResponse = await fetch(`/api/app/finance/invoices/${params.id}/attachments`);
@@ -143,8 +148,26 @@ export default function InvoiceDetailPage() {
       return;
     }
     setReceiptData(json.receipt);
-    setData({ invoice: { ...data.invoice, status: json.invoice?.status || "paid" }, lineItems: data.lineItems || [], advanceApplications: data.advanceApplications || [] });
+    setData((current: any) => ({ ...current, invoice: { ...current.invoice, status: json.invoice?.status || "paid" }, lineItems: current.lineItems || [], advanceApplications: current.advanceApplications || [] }));
     setReferenceNumber("");
+  }
+
+  async function sendSalesInvoiceEmail() {
+    setEmailSending(true);
+    setEmailMessage("Sending sales invoice email…");
+    try {
+      const response = await fetch(`/api/app/finance/invoices/${params.id}/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sendCopy })
+      });
+      const result = await response.json();
+      setEmailMessage(response.ok ? `Sales invoice email sent successfully to ${result.to}.` : result.error ?? "Could not send sales invoice email.");
+    } catch {
+      setEmailMessage("Could not reach the email service. Please try again.");
+    } finally {
+      setEmailSending(false);
+    }
   }
 
   if (!data.invoice) {
@@ -234,6 +257,7 @@ export default function InvoiceDetailPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex flex-wrap gap-3">
+          <button type="button" className="btn-secondary flex-1" onClick={() => { setEmailMessage(null); setReviewOpen(true); }}>Review Sales Invoice Mail</button>
           {data.canEdit && data.invoice.status === "draft" && (
             <>
               <Link href={`/app/finance/invoices/${data.invoice.id}/edit`} className="btn-secondary flex-1 text-center">Edit Draft</Link>
@@ -245,9 +269,6 @@ export default function InvoiceDetailPage() {
           {data.canEdit && data.invoice.status === "reviewed" && (
             <>
               <Link href={`/app/finance/invoices/${data.invoice.id}/edit`} className="btn-secondary flex-1 text-center">Edit Invoice</Link>
-              <button type="button" className="btn-primary flex-1" disabled={loading} onClick={() => updateStatus("sent")}>
-                {loading ? "Sending…" : "Send Invoice"}
-              </button>
             </>
           )}
           {data.invoice.status !== "paid" && (
@@ -299,6 +320,33 @@ export default function InvoiceDetailPage() {
           </div>
         )}
       </div>
+      {reviewOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-900/50 p-4 md:p-10" role="dialog" aria-modal="true" aria-label="Sales invoice email preview">
+          <div className="w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-ink-100 px-6 py-4">
+              <div><h2 className="text-lg font-semibold text-ink-900">Review Sales Invoice Mail</h2><p className="text-sm text-ink-500">This is how the sales invoice will appear to the customer.</p></div>
+              <button type="button" className="btn-secondary" onClick={() => setReviewOpen(false)}>Close</button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto bg-ink-50 p-4 md:p-8">
+              <div className="mx-auto max-w-2xl rounded-xl border border-ink-100 bg-white p-6 shadow-sm md:p-8">
+                {data.company?.logo_url ? <img src={data.company.logo_url} alt={`${data.company.name} logo`} className="mb-6 max-h-16 max-w-[220px]" /> : <p className="mb-6 text-2xl font-bold text-ink-900">{data.company?.name || "Bizzio Online"}</p>}
+                <p className="text-base">Dear {data.invoice.customer?.contact_person || data.invoice.customer?.name || "Customer"},</p>
+                <p className="mt-4 text-sm leading-6 text-ink-600">Please find below the sales invoice issued by <strong>{data.company?.name || "your company"}</strong>.</p>
+                <div className="mt-5 grid gap-3 rounded-lg bg-ink-50 p-4 text-sm md:grid-cols-3"><div><span className="block text-xs text-ink-400">Invoice number</span><strong>{data.invoice.invoice_number}</strong></div><div><span className="block text-xs text-ink-400">Title</span><strong>{data.invoice.title}</strong></div><div><span className="block text-xs text-ink-400">Date</span><strong>{formatDate(data.invoice.invoice_date)}</strong></div></div>
+                <div className="mt-6 overflow-hidden rounded-lg border border-ink-100"><table className="min-w-full text-left text-xs"><thead className="bg-ink-900 text-white"><tr><th className="px-3 py-2">Description</th><th className="px-3 py-2 text-right">Qty</th><th className="px-3 py-2 text-right">Rate</th><th className="px-3 py-2 text-right">Tax</th><th className="px-3 py-2 text-right">Amount</th></tr></thead><tbody>{data.lineItems.map((line: any) => <tr key={line.id} className="border-t border-ink-100"><td className="px-3 py-2">{line.description}</td><td className="px-3 py-2 text-right">{line.qty}</td><td className="px-3 py-2 text-right">₹{Number(line.rate || 0).toFixed(2)}</td><td className="px-3 py-2 text-right">{Number(line.gst_percent || 0).toFixed(2)}%</td><td className="px-3 py-2 text-right font-semibold">₹{Number(line.line_total || 0).toFixed(2)}</td></tr>)}</tbody></table></div>
+                <div className="ml-auto mt-5 max-w-xs space-y-2 text-sm"><div className="flex justify-between"><span>Subtotal</span><span>₹{totals.base.toFixed(2)}</span></div><div className="flex justify-between"><span>Taxes</span><span>₹{totals.gst.toFixed(2)}</span></div><div className="flex justify-between border-t-2 border-ink-900 pt-2 font-bold"><span>Grand total</span><span>₹{totals.total.toFixed(2)}</span></div></div>
+                <p className="mt-7 text-sm leading-6 text-ink-600">Please let us know if you have any questions regarding this sales invoice.</p><p className="mt-5 text-sm leading-6">Warm regards,<br /><strong>Operations</strong><br />{data.company?.name}</p>
+              </div>
+            </div>
+            <div className="border-t border-ink-100 bg-white px-6 py-4">
+              <p className="text-sm text-ink-700">This sales invoice will be sent to <strong>{data.invoice.customer?.contact_email || "the customer email address"}</strong>.</p>
+              {emailMessage && <p role="status" aria-live="polite" className={`mt-3 rounded-lg px-3 py-2 text-sm ${emailMessage.startsWith("Sales invoice email sent") ? "bg-green-50 text-green-700" : "bg-amber-50 text-amber-700"}`}>{emailMessage}</p>}
+              <label className="mt-3 flex items-start gap-2 text-sm text-ink-700"><input type="checkbox" checked={sendCopy} onChange={(event) => setSendCopy(event.target.checked)} className="mt-0.5" /><span>Send a copy to me<span className="block text-xs text-ink-500">The copy will be sent by BCC to your signed-in email address.</span></span></label>
+              <div className="mt-4 flex justify-end"><button type="button" className="btn-primary" disabled={emailSending} onClick={() => void sendSalesInvoiceEmail()}>{emailSending ? "Sending…" : "Send Sales Invoice Mail"}</button></div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

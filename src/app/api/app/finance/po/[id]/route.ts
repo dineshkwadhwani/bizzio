@@ -64,8 +64,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       .order("id", { ascending: true });
 
     if (lineError) return NextResponse.json({ error: lineError.message }, { status: 500 });
+    const { data: company } = await supabase.from("companies").select("name, logo_url").eq("id", guard.employee.company_id).single();
     const quotationUrl = po.supplier_quotation_path ? (await supabase.storage.from("purchase-order-documents").createSignedUrl(po.supplier_quotation_path, 3600)).data?.signedUrl ?? null : null;
-    return NextResponse.json({ po, lineItems: lineItems ?? [], quotationUrl });
+    return NextResponse.json({ po, lineItems: lineItems ?? [], quotationUrl, company });
   } catch (error) {
     return error as Response;
   }
