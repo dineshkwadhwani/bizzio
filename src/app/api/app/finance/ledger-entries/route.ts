@@ -47,12 +47,12 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const mode = url.searchParams.get("mode");
     const journalId = url.searchParams.get("journal_id");
-    const guard = await requireFinance(mode === "account-options" ? "finance_adhoc_entries" : journalId ? "edit_transactions" : "view_finance_transaction_report");
+    const guard = await requireFinance(mode === "payment-account-options" ? "finance_make_payments" : mode === "account-options" ? "finance_adhoc_entries" : journalId ? "edit_transactions" : "view_finance_transaction_report");
     const supabase = createClient();
     const includeBalanceAccounts = url.searchParams.get("include_balance_accounts") === "true";
     const companyId = guard.employee.company_id;
 
-    if (mode === "account-options") {
+    if (mode === "account-options" || mode === "payment-account-options") {
       const [{ data: heads }, { data: vendors }, { data: customers }, { data: employees }] = await Promise.all([
         supabase
           .from("account_heads")
@@ -421,8 +421,8 @@ export async function PATCH(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const guard = await requireFinance("finance_adhoc_entries");
     const body = await request.json();
+    const guard = await requireFinance(body?.payment_context === "make_payment" ? "finance_make_payments" : "finance_adhoc_entries");
     const parsed = LedgerEntrySchema.safeParse(body);
 
     if (!parsed.success) {

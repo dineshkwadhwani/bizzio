@@ -30,7 +30,7 @@ export default function NewPaymentPage() {
       const [invoiceResponse, poResponse, accountResponse] = await Promise.all([
         fetch("/api/app/finance/purchase-invoices"),
         fetch("/api/app/finance/po"),
-        fetch("/api/app/finance/ledger-entries?mode=account-options&include_balance_accounts=true")
+        fetch("/api/app/finance/ledger-entries?mode=payment-account-options&include_balance_accounts=true")
       ]);
       const invoiceJson = await invoiceResponse.json();
       const poJson = await poResponse.json();
@@ -53,6 +53,7 @@ export default function NewPaymentPage() {
     event.preventDefault(); setError(null); setLoading(true);
     let url = "/api/app/finance/ledger-entries";
     let body: Record<string, any> = { entry_type: "expense", account_id: accountId, amount: Number(amount), payment_mode: paymentMode, reference_number: reference, description, notes, entry_date: paymentDate, is_accountable: true };
+    if (target === "standalone") body.payment_context = "make_payment";
     if (target === "purchase_invoice") { url = `/api/app/finance/purchase-invoices/${targetId}/payment`; const paymentId = crypto.randomUUID(); let document = { path: null as string | null, name: null as string | null }; if (paymentDocument) { try { document = await uploadPaymentDocument(paymentDocument, paymentId); } catch (uploadError) { setLoading(false); setError(`The payment document could not be uploaded: ${(uploadError as Error).message}`); return; } } body = { payment_id: paymentId, payment_mode: paymentMode, amount: Number(amount), reference_number: reference, paid_at: paymentDate, attachment_path: document.path, attachment_name: document.name }; }
     else if (target === "standalone" && paymentDocument) { try { const document = await uploadPaymentDocument(paymentDocument, crypto.randomUUID()); body.attachment_path = document.path; body.attachment_name = document.name; } catch (uploadError) { setLoading(false); setError(`The payment document could not be uploaded: ${(uploadError as Error).message}`); return; } }
     else if (target === "purchase_order") { url = `/api/app/finance/po/${targetId}/payment`; body = { payment_mode: paymentMode, payment_type: "part", amount: Number(amount), reference_number: reference, payment_date: paymentDate }; }

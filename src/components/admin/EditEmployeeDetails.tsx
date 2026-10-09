@@ -71,19 +71,21 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
       <h2 className="font-semibold text-ink-900">Editable Details</h2>
       <div>
         <p className="label">Hierarchy role and capability flags</p>
-        <div className="grid gap-2 sm:grid-cols-2 text-sm text-ink-700">
+        <p className="mb-3 text-xs text-ink-500">These flags control which areas of Bizzio this employee can access.</p>
+        <div className="grid gap-3 sm:grid-cols-2 text-sm text-ink-700">
           <select className="input sm:col-span-2" value={form.hierarchy_role} onChange={(e) => setForm({ ...form, hierarchy_role: e.target.value })}>
             <option value="employee">Employee</option>
             <option value="manager">Manager</option>
             <option value="director">Director</option>
             <option value="ceo">CEO</option>
           </select>
-          <label><input type="checkbox" checked={form.is_finance} onChange={(e) => setForm({ ...form, is_finance: e.target.checked })} /> Finance</label>
-          <label><input type="checkbox" checked={form.is_hr} onChange={(e) => setForm({ ...form, is_hr: e.target.checked })} /> HR</label>
-          <label><input type="checkbox" checked={form.is_software_engineer} onChange={(e) => setForm({ ...form, is_software_engineer: e.target.checked })} /> Software Engineer</label>
-          <label><input type="checkbox" checked={form.is_sales} onChange={(e) => setForm({ ...form, is_sales: e.target.checked })} /> Sales</label>
-          <label><input type="checkbox" checked={form.is_operations} onChange={(e) => setForm({ ...form, is_operations: e.target.checked })} /> Operations</label>
-          <label><input type="checkbox" checked={form.is_support} onChange={(e) => setForm({ ...form, is_support: e.target.checked })} /> Support</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded border border-ink-200 px-3 py-2"><input type="checkbox" checked={form.is_finance} onChange={(e) => setForm({ ...form, is_finance: e.target.checked })} /> Finance</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded border border-ink-200 px-3 py-2"><input type="checkbox" checked={form.is_hr} onChange={(e) => setForm({ ...form, is_hr: e.target.checked })} /> HR</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded border border-ink-200 px-3 py-2"><input type="checkbox" checked={form.is_software_engineer} onChange={(e) => setForm({ ...form, is_software_engineer: e.target.checked })} /> Software Engineer</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded border border-ink-200 px-3 py-2"><input type="checkbox" checked={form.is_sales} onChange={(e) => setForm({ ...form, is_sales: e.target.checked })} /> Sales</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded border border-ink-200 px-3 py-2"><input type="checkbox" checked={form.is_operations} onChange={(e) => setForm({ ...form, is_operations: e.target.checked })} /> Operations</label>
+          <label className="flex cursor-pointer items-center gap-2 rounded border border-ink-200 px-3 py-2"><input type="checkbox" checked={form.is_support} onChange={(e) => setForm({ ...form, is_support: e.target.checked })} /> Support</label>
+          {form.is_finance && <label className="sm:col-span-2"><span className="label">Finance scope</span><select className="input mt-1" value={form.finance_scope} onChange={(e) => setForm({ ...form, finance_scope: e.target.value })}><option value="department">Department</option><option value="company">Company</option></select></label>}
         </div>
       </div>
       <div>

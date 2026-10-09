@@ -56,7 +56,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const attachmentUrl = invoice.attachment_path ? (await supabase.storage.from("transaction-documents").createSignedUrl(invoice.attachment_path, 3600)).data?.signedUrl ?? null : null;
     const paymentsWithUrls = await Promise.all((payments ?? []).map(async (payment: any) => ({ ...payment, attachment_url: payment.attachment_path ? (await supabase.storage.from("transaction-documents").createSignedUrl(payment.attachment_path, 3600)).data?.signedUrl ?? null : null })));
     const canEdit = canEditInvoices(guard.employee as any) && (invoice.status === "paid" ? isFinanceManager(guard.employee as any) : invoice.created_by === guard.employee.id);
-    return NextResponse.json({ invoice: { ...invoice, attachment_url: attachmentUrl }, lineItems: lineItems ?? [], payments: paymentsWithUrls, canEdit });
+    const template = Array.isArray((guard.employee as any).permission_templates) ? (guard.employee as any).permission_templates[0] : (guard.employee as any).permission_templates;
+    const canPay = Boolean((guard.employee as any).is_finance)
+      && hasPermission(effectiveToggles(template?.toggles, (guard.employee as any).permission_overrides), "finance_make_payments");
+    return NextResponse.json({ invoice: { ...invoice, attachment_url: attachmentUrl }, lineItems: lineItems ?? [], payments: paymentsWithUrls, canEdit, canPay });
   } catch (error) { return error as Response; }
 }
 
