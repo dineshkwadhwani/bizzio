@@ -14,14 +14,36 @@ export async function POST(request: Request) {
   }
 
   const event = JSON.parse(rawBody);
-  if (event.event !== "payment_link.paid") {
-    return NextResponse.json({ received: true }); // ignore other event types
+  const admin = createAdminClient();
+
+  if (event.event === "payment.captured" || event.event === "order.paid") {
+    const paymentEntity = event.payload?.payment?.entity;
+    const orderId = paymentEntity?.order_id;
+    const paymentId = paymentEntity?.id;
+    if (!orderId || !paymentId) return NextResponse.json({ received: true });
+    const { data: checkout } = await admin.from("registration_checkouts").select("*, coupons(*)").eq("razorpay_order_id", orderId).maybeSingle();
+    if (!checkout || checkout.status === "paid") return NextResponse.json({ received: true });
+    if (checkout.coupons?.usage_type === "single") {
+      const { count } = await admin.from("coupon_redemptions").select("id", { count: "exact", head: true }).eq("coupon_id", checkout.coupon_id);
+      if ((count ?? 0) > 0) return NextResponse.json({ received: true });
+    }
+    await admin.from("registration_checkouts").update({ status: "paid", razorpay_payment_id: paymentId, payment_verified_at: new Date().toISOString() }).eq("id", checkout.id);
+    await admin.from("payments").update({ status: "success", razorpay_payment_id: paymentId }).eq("checkout_id", checkout.id);
+    if (checkout.coupon_id) await admin.from("coupon_redemptions").insert({ coupon_id: checkout.coupon_id, checkout_id: checkout.id, company_id: checkout.company_id, contact_email: checkout.contact_email, discount_amount: checkout.discount_amount });
+    try {
+      const { activatePaidRegistration } = await import("@/lib/registration-payment");
+      await activatePaidRegistration(checkout.company_id, paymentId, checkout.id);
+    } catch (error) {
+      return NextResponse.json({ error: (error as Error).message || "Could not activate registration" }, { status: 500 });
+    }
+    return NextResponse.json({ received: true });
   }
+
+  if (event.event !== "payment_link.paid") return NextResponse.json({ received: true });
 
   const companyId: string | undefined = event.payload?.payment_link?.entity?.reference_id;
   if (!companyId) return NextResponse.json({ error: "No company reference" }, { status: 400 });
 
-  const admin = createAdminClient();
   const { data: company } = await admin.from("companies").select("*").eq("id", companyId).single();
   if (!company || company.status !== "payment_pending") {
     return NextResponse.json({ received: true }); // already processed / not applicable

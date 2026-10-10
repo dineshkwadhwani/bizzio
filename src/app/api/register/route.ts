@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
+import { createRegistrationOrder } from "@/lib/razorpay";
+import { activatePaidRegistration } from "@/lib/registration-payment";
 
 const RegisterSchema = z.object({
   contact_email: z.string().email(),
@@ -11,7 +13,8 @@ const RegisterSchema = z.object({
   contact_person_name: z.string().min(2),
   contact_phone: z.string().min(7),
   plan_id: z.string().uuid(),
-  turnstile_token: z.string().optional()
+  turnstile_token: z.string().optional(),
+  coupon_code: z.string().trim().max(40).optional()
 });
 
 function isProductionRequest(request: Request) {
@@ -64,7 +67,27 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient();
   const normalizedEmail = parsed.data.contact_email.trim();
-  const { turnstile_token: _turnstileToken, ...registrationData } = parsed.data;
+  const { turnstile_token: _turnstileToken, coupon_code: couponCode, ...registrationData } = parsed.data;
+
+  const { data: plan } = await supabase.from("subscription_plans").select("id, name, offer_price, is_active").eq("id", parsed.data.plan_id).single();
+  if (!plan?.is_active) return NextResponse.json({ error: "The selected plan is not available." }, { status: 400 });
+
+  let coupon: any = null;
+  let discountAmount = 0;
+  if (couponCode) {
+    const { data: couponRow } = await supabase.from("coupons").select("*").eq("code", couponCode.toUpperCase()).eq("is_active", true).maybeSingle();
+    if (!couponRow || (couponRow.expires_at && new Date(couponRow.expires_at).getTime() < Date.now())) return NextResponse.json({ error: "This coupon is invalid or expired." }, { status: 400 });
+    if (couponRow.usage_type === "single") {
+      const { count } = await supabase.from("coupon_redemptions").select("id", { count: "exact", head: true }).eq("coupon_id", couponRow.id);
+      if ((count ?? 0) > 0) return NextResponse.json({ error: "This coupon has already been used." }, { status: 400 });
+    }
+    coupon = couponRow;
+    discountAmount = coupon.discount_type === "percentage" ? Number((Number(plan.offer_price) * Number(coupon.discount_value) / 100).toFixed(2)) : Number(coupon.discount_value);
+    discountAmount = Math.min(Number(plan.offer_price), discountAmount);
+  }
+
+  const subtotal = Number(Number(plan.offer_price).toFixed(2));
+  const totalAmount = Number(Math.max(0, subtotal - discountAmount).toFixed(2));
 
   const { data: existingCompany } = await supabase
     .from("companies")
@@ -81,12 +104,34 @@ export async function POST(request: Request) {
 
   const { data: company, error } = await supabase
     .from("companies")
-    .insert({ ...registrationData, contact_email: normalizedEmail, status: "pending" })
+    .insert({ ...registrationData, contact_email: normalizedEmail, status: totalAmount > 0 ? "payment_pending" : "pending" })
     .select()
     .single();
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (totalAmount === 0) {
+    const checkout = await supabase.from("registration_checkouts").insert({ company_id: company.id, plan_id: plan.id, coupon_id: coupon?.id ?? null, contact_email: normalizedEmail, subtotal, discount_amount: discountAmount, total_amount: totalAmount, status: "paid", payment_verified_at: new Date().toISOString(), registration_payload: registrationData }).select().single();
+    if (checkout.error) return NextResponse.json({ error: checkout.error.message }, { status: 500 });
+    if (coupon) await supabase.from("coupon_redemptions").insert({ coupon_id: coupon.id, checkout_id: checkout.data.id, company_id: company.id, contact_email: normalizedEmail, discount_amount: discountAmount });
+    await activatePaidRegistration(company.id, "coupon-free");
+    return NextResponse.json({ company, requires_payment: false, total_amount: totalAmount });
+  }
+
+  if (totalAmount > 0) {
+    const { data: checkout, error: checkoutError } = await supabase.from("registration_checkouts").insert({ company_id: company.id, plan_id: plan.id, coupon_id: coupon?.id ?? null, contact_email: normalizedEmail, subtotal, discount_amount: discountAmount, total_amount: totalAmount, status: "created", registration_payload: registrationData }).select().single();
+    if (checkoutError || !checkout) return NextResponse.json({ error: checkoutError?.message ?? "Could not create checkout." }, { status: 500 });
+    try {
+      const order = await createRegistrationOrder(totalAmount, company.id, checkout.id);
+      await supabase.from("registration_checkouts").update({ razorpay_order_id: order.id, status: "payment_pending" }).eq("id", checkout.id);
+      await supabase.from("payments").insert({ company_id: company.id, checkout_id: checkout.id, coupon_id: coupon?.id ?? null, razorpay_order_id: order.id, amount: totalAmount, status: "created" });
+      return NextResponse.json({ company, requires_payment: true, checkout: { id: checkout.id, order_id: order.id, amount: totalAmount, currency: "INR", key_id: process.env.RAZORPAY_KEY_ID, plan_name: plan.name, subtotal, discount_amount: discountAmount } });
+    } catch (orderError) {
+      await supabase.from("registration_checkouts").update({ status: "failed" }).eq("id", checkout.id);
+      return NextResponse.json({ error: (orderError as Error).message || "Could not start payment." }, { status: 502 });
+    }
   }
 
   try {
@@ -96,5 +141,5 @@ export async function POST(request: Request) {
     // Non-fatal — registration still succeeds even if the acknowledgement email fails.
   }
 
-  return NextResponse.json({ company });
+  return NextResponse.json({ company, requires_payment: false, total_amount: totalAmount });
 }

@@ -28,6 +28,11 @@ function RegisterForm() {
   const searchParams = useSearchParams();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [selectedPlan, setSelectedPlan] = useState<string>("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponApplied, setCouponApplied] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponMessage, setCouponMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isProductionSite, setIsProductionSite] = useState(false);
@@ -66,6 +71,21 @@ function RegisterForm() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  const selectedPlanDetails = plans.find((plan) => plan.id === selectedPlan);
+  const subtotal = Number(selectedPlanDetails?.offer_price ?? 0);
+  const total = Math.max(0, subtotal - discountAmount);
+
+  async function applyCoupon() {
+    if (!selectedPlan || !couponCode.trim()) return;
+    setCouponLoading(true); setCouponMessage(null);
+    const response = await fetch("/api/register/coupon", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ plan_id: selectedPlan, coupon_code: couponCode.trim() }) });
+    const json = await response.json(); setCouponLoading(false);
+    if (!response.ok) { setCouponApplied(false); setDiscountAmount(0); setCouponMessage(typeof json.error === "string" ? json.error : "This coupon could not be applied."); return; }
+    setCouponApplied(true); setDiscountAmount(Number(json.discount_amount)); setCouponMessage(`Coupon applied. You save ${formatINR(Number(json.discount_amount))}.`);
+  }
+
+  function clearCoupon() { setCouponCode(""); setCouponApplied(false); setDiscountAmount(0); setCouponMessage(null); }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -91,6 +111,7 @@ function RegisterForm() {
       body: JSON.stringify({
         ...form,
         plan_id: selectedPlan,
+        ...(couponCode.trim() ? { coupon_code: couponCode.trim() } : {}),
         ...(turnstileToken ? { turnstile_token: turnstileToken } : {})
       })
     });
@@ -102,7 +123,29 @@ function RegisterForm() {
       return;
     }
 
-    router.push("/register/pending");
+    if (!json.requires_payment) { router.push("/register/pending"); return; }
+    const Razorpay = (window as any).Razorpay;
+    if (!Razorpay) { setLoading(false); setError("Payment checkout could not be loaded. Please refresh and try again."); return; }
+    const checkout = json.checkout;
+    const paymentWindow = new Razorpay({
+      key: checkout.key_id,
+      amount: Math.round(Number(checkout.amount) * 100),
+      currency: checkout.currency,
+      name: "Bizzio Online",
+      description: `${checkout.plan_name} subscription`,
+      order_id: checkout.order_id,
+      prefill: { name: form.contact_person_name, email: form.contact_email, contact: form.contact_phone },
+      notes: { checkout_id: checkout.id },
+      theme: { color: "#f5b83d" },
+      handler: async (response: any) => {
+        const verify = await fetch("/api/register/payment/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ checkout_id: checkout.id, razorpay_order_id: response.razorpay_order_id, razorpay_payment_id: response.razorpay_payment_id, razorpay_signature: response.razorpay_signature }) });
+        const verifyJson = await verify.json();
+        if (!verify.ok) { setLoading(false); setError(typeof verifyJson.error === "string" ? verifyJson.error : "Payment was received but could not be verified."); return; }
+        router.push("/register/payment/success");
+      },
+      modal: { ondismiss: () => { setLoading(false); setError("Payment was cancelled. Your registration was not activated."); } }
+    });
+    paymentWindow.open();
   }
 
   return (
@@ -174,7 +217,7 @@ function RegisterForm() {
                   type="button"
                   key={plan.id}
                   disabled={!plan.is_active}
-                  onClick={() => setSelectedPlan(plan.id)}
+                  onClick={() => { setSelectedPlan(plan.id); if (plan.id !== selectedPlan) clearCoupon(); }}
                   className={`rounded-xl border p-3 text-left text-sm transition ${
                     selectedPlan === plan.id
                       ? "border-brand-500 ring-2 ring-brand-200"
@@ -195,6 +238,15 @@ function RegisterForm() {
             </div>
           </div>
 
+          <div className="rounded-xl border border-ink-200 bg-ink-50 p-4">
+            <div className="flex items-center justify-between"><h2 className="font-semibold text-ink-900">Registration cart</h2><span className="text-sm text-ink-500">1 subscription</span></div>
+            <div className="mt-3 flex justify-between text-sm"><span>{selectedPlanDetails?.name ?? "Select a plan"}</span><span>{formatINR(subtotal)}</span></div>
+            {discountAmount > 0 && <div className="mt-1 flex justify-between text-sm text-green-700"><span>Coupon discount</span><span>-{formatINR(discountAmount)}</span></div>}
+            <div className="mt-3 flex justify-between border-t border-ink-200 pt-3 font-semibold"><span>Total due</span><span>{total === 0 ? "Free" : `${formatINR(total)}/yr`}</span></div>
+            {selectedPlanDetails && subtotal > 0 && <div className="mt-4 flex gap-2"><input className="input" placeholder="Have a coupon?" value={couponCode} disabled={couponApplied || couponLoading} onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponMessage(null); }} /><button type="button" className="btn-secondary whitespace-nowrap" onClick={couponApplied ? clearCoupon : () => void applyCoupon()} disabled={couponLoading || (!couponApplied && !couponCode.trim())}>{couponApplied ? "Remove" : couponLoading ? "Checking…" : "Apply"}</button></div>}
+            {couponMessage && <p className={`mt-2 text-xs ${couponApplied ? "text-green-700" : "text-red-600"}`}>{couponMessage}</p>}
+          </div>
+
           {isProductionSite && (
             <>
               <Script
@@ -211,7 +263,7 @@ function RegisterForm() {
           {error && <p className="text-sm text-red-600">{error}</p>}
 
           <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? "Submitting…" : "Submit Application"}
+            {loading ? (total > 0 ? "Opening payment…" : "Submitting…") : total > 0 ? "Continue to payment" : "Submit Application"}
           </button>
         </form>
 
@@ -222,6 +274,7 @@ function RegisterForm() {
           </Link>
         </p>
       </div>
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="afterInteractive" />
     </main>
   );
 }

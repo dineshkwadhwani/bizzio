@@ -11,6 +11,23 @@ export function getRazorpay() {
   });
 }
 
+export async function createRegistrationOrder(amountInRupees: number, companyId: string, checkoutId: string) {
+  const razorpay = getRazorpay();
+  return razorpay.orders.create({
+    amount: Math.round(amountInRupees * 100),
+    currency: "INR",
+    receipt: `reg-${checkoutId}`,
+    notes: { company_id: companyId, checkout_id: checkoutId }
+  });
+}
+
+export function verifyPaymentSignature(orderId: string, paymentId: string, signature: string) {
+  if (!process.env.RAZORPAY_KEY_SECRET) return false;
+  const expected = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET).update(`${orderId}|${paymentId}`).digest("hex");
+  if (expected.length !== signature.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
 /** Creates a one-time order for the Pro plan annual subscription (Module 1 §4.5). */
 export async function createProPlanOrder(amountInRupees: number, companyId: string) {
   const razorpay = getRazorpay();
