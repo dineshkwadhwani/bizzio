@@ -106,6 +106,11 @@ export function hasPermission(toggles: Toggles | null | undefined, permission: s
   return toggles?.[permission] === true;
 }
 
+/** CEOs have full report visibility when their company has Finance enabled. */
+export function hasFinanceReportPermission(employee: Record<string, any> | null | undefined, toggles: Toggles | null | undefined, permission: string) {
+  return employee?.hierarchy_role === "ceo" || hasPermission(toggles, permission);
+}
+
 export function moduleEnabled(featureBundle: Record<string, any> | null | undefined, module: ModuleKey) {
   // Empty or missing bundles are not a valid package configuration. Fail closed
   // until an administrator assigns a package explicitly.

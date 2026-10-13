@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ProfilePhotoUpload } from "@/components/app/ProfilePhotoUpload";
 import { EmployeeDocumentUpload } from "@/components/app/EmployeeDocumentUpload";
+import { EmployeeIdCard } from "@/components/app/EmployeeIdCard";
 
 export default function ProfilePage() {
   const supabase = createClient();
   const [employee, setEmployee] = useState<any>(null);
+  const [company, setCompany] = useState<{ name: string; logo_url: string | null; branding_color: string | null; branding_font_color: string | null } | null>(null);
   const [documents, setDocuments] = useState<any[]>([]);
   const [form, setForm] = useState({ phone: "", emergency_contact_name: "", emergency_contact_phone: "" });
   const [saved, setSaved] = useState(false);
@@ -18,11 +20,12 @@ export default function ProfilePage() {
       const { data } = await supabase.from("employees").select("*").eq("user_id", auth.user?.id).single();
       setEmployee(data);
       if (data) {
-        const { data: employeeDocuments } = await supabase
-          .from("employee_documents")
-          .select("document_type, file_url")
-          .eq("employee_id", data.id);
+        const [{ data: employeeDocuments }, { data: companyData }] = await Promise.all([
+          supabase.from("employee_documents").select("document_type, file_url").eq("employee_id", data.id),
+          supabase.from("companies").select("name, logo_url, branding_color, branding_font_color").eq("id", data.company_id).single()
+        ]);
         setDocuments(employeeDocuments ?? []);
+        setCompany(companyData);
       }
       if (data) {
         setForm({
@@ -57,6 +60,8 @@ export default function ProfilePage() {
           <dd className="text-ink-600">{employee.date_of_joining ?? "—"}</dd>
         </dl>
       </div>
+
+      {company && <EmployeeIdCard employee={employee} company={company} />}
 
       <form onSubmit={save} className="card mt-6 space-y-4">
         <h2 className="font-semibold text-ink-900">Editable</h2>

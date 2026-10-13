@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
+import { effectiveToggles, hasFinanceReportPermission, moduleEnabled } from "@/lib/permissions";
 import { formatINR, formatDate } from "@/lib/utils";
 
 export const revalidate = 0;
@@ -20,7 +20,7 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams?
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   const { data: employee } = await supabase.from("employees")
-    .select("id, company_id, is_finance, permission_overrides, permission_templates(toggles)")
+    .select("id, company_id, hierarchy_role, is_finance, permission_overrides, permission_templates(toggles)")
     .eq("user_id", user?.id)
     .single();
 
@@ -34,7 +34,7 @@ export default async function BalanceSheetPage({ searchParams }: { searchParams?
   const { data: company } = employee ? await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle() : { data: null };
   const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
 
-  if (!employee?.is_finance || !plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "finance") || !toggles.view_finance_balance_sheet || feature?.enabled === false) {
+  if (!employee?.is_finance || !plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "finance") || !hasFinanceReportPermission(employee, toggles, "view_finance_balance_sheet") || feature?.enabled === false) {
     return <div className="card p-6 text-sm text-red-600">Finance Reports permission is required to view the Balance Sheet.</div>;
   }
 

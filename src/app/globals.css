@@ -46,6 +46,25 @@ body {
     visibility: hidden;
   }
 
+  body {
+    background: white !important;
+  }
+
+  .employee-id-card-printable,
+  .employee-id-card-printable * {
+    visibility: visible;
+  }
+
+  .employee-id-card-printable {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 54mm !important;
+    height: 86mm !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
   .printable-account-statement,
   .printable-account-statement * {
     visibility: visible;

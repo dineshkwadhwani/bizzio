@@ -76,12 +76,13 @@ export async function POST(request: Request) {
 
   const temporaryPassword = randomBytes(18).toString("base64url");
 
-  // Auto-generate employee_code: EMP-0001, EMP-0002, ...
+  // Auto-generate a company-wide sequence with a type-specific prefix.
   const { count } = await admin
     .from("employees")
     .select("id", { count: "exact", head: true })
     .eq("company_id", companyId);
-  const employeeCode = `EMP-${String((count ?? 0) + 1).padStart(4, "0")}`;
+  const employeePrefix = data.employee_type === "contractor" ? "CON" : "EMP";
+  const employeeCode = `${employeePrefix}-${String((count ?? 0) + 1).padStart(4, "0")}`;
 
   const { data: authUser, error: createErr } = await admin.auth.admin.createUser({
     email: data.email,

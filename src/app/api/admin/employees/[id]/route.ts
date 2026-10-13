@@ -36,7 +36,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const admin = createAdminClient();
   const { data: employee, error: employeeError } = await admin
     .from("employees")
-    .select("id, company_id")
+    .select("id, company_id, employee_code, employee_type")
     .eq("id", params.id)
     .single();
   if (employeeError || !employee) return NextResponse.json({ error: "Employee not found" }, { status: 404 });
@@ -45,6 +45,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 
   const data = parsed.data;
+  const employeeCode = data.employee_type
+    ? employee.employee_code.replace(/^[A-Za-z]+-/, `${data.employee_type === "contractor" ? "CON" : "EMP"}-`)
+    : employee.employee_code;
   const hierarchy_role = data.hierarchy_role;
   if (data.reporting_manager_id) {
     const { data: manager } = await admin.from("employees").select("id").eq("id", data.reporting_manager_id).eq("company_id", employee.company_id).single();
@@ -69,6 +72,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     .from("employees")
     .update({
       ...data,
+      ...(data.employee_type ? { employee_code: employeeCode } : {}),
       ...(hierarchy_role ? {
         is_manager: hierarchy_role === "manager" || hierarchy_role === "director",
         is_director: hierarchy_role === "director",

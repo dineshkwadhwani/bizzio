@@ -72,6 +72,8 @@ create table companies (
   plan_id                     uuid references subscription_plans(id),
   rejection_reason            text,
   logo_url                    text,
+  branding_color              text check (branding_color is null or branding_color ~ '^#[0-9A-Fa-f]{6}$'),
+  branding_font_color         text check (branding_font_color is null or branding_font_color ~ '^#[0-9A-Fa-f]{6}$'),
   gstin                       text,
   approval_hierarchy_depth    smallint not null default 1 check (approval_hierarchy_depth in (1,2)),
   subteam_feature_enabled     boolean not null default false,

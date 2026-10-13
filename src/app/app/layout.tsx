@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import { DashboardShell, type DashboardIdentity, type NavItem } from "@/components/layout/DashboardShell";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { effectiveToggles, hasCapability, hasPermission, moduleEnabled } from "@/lib/permissions";
+import { effectiveToggles, hasCapability, hasFinanceReportPermission, hasPermission, moduleEnabled } from "@/lib/permissions";
 import { MissingDocumentsModal } from "@/components/app/MissingDocumentsModal";
 
 export const dynamic = "force-dynamic";
@@ -115,10 +115,10 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3", section: "Insights" });
   }
   if (canFinance && financeReportsEnabled) {
-    if (hasPermission(toggles, "view_finance_journal_report")) nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
-    if (hasPermission(toggles, "view_finance_transaction_report")) nav.push({ href: "/app/finance/reports/transactions", label: "Transaction Report", icon: "FileText", section: "Insights" });
-    if (hasPermission(toggles, "view_finance_balance_sheet")) nav.push({ href: "/app/finance/reports/balance-sheet", label: "Balance Sheet", icon: "FileText", section: "Insights" });
-    if (hasPermission(toggles, "view_finance_invoice_report")) nav.push({ href: "/app/finance/reports/invoices", label: "Invoice Report", icon: "FileText", section: "Insights" });
+    if (hasFinanceReportPermission(employee, toggles, "view_finance_journal_report")) nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
+    if (hasFinanceReportPermission(employee, toggles, "view_finance_transaction_report")) nav.push({ href: "/app/finance/reports/transactions", label: "Transaction Report", icon: "FileText", section: "Insights" });
+    if (hasFinanceReportPermission(employee, toggles, "view_finance_balance_sheet")) nav.push({ href: "/app/finance/reports/balance-sheet", label: "Balance Sheet", icon: "FileText", section: "Insights" });
+    if (hasFinanceReportPermission(employee, toggles, "view_finance_invoice_report")) nav.push({ href: "/app/finance/reports/invoices", label: "Invoice Report", icon: "FileText", section: "Insights" });
   }
 
   return (
