@@ -10,7 +10,7 @@ type SearchTopic = {
   content: string;
 };
 
-export function HelpSearch({ topics, embedded }: { topics: SearchTopic[]; embedded: boolean }) {
+export function HelpSearch({ topics, embedded, module = "finance" }: { topics: SearchTopic[]; embedded: boolean; module?: string }) {
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const results = useMemo(() => {
@@ -19,7 +19,8 @@ export function HelpSearch({ topics, embedded }: { topics: SearchTopic[]; embedd
   }, [normalizedQuery, topics]);
 
   function hrefFor(match: string) {
-    return `/help/finance?path=${encodeURIComponent(match)}${embedded ? "&embedded=true" : ""}`;
+    const base = embedded ? "/help" : "/app/help";
+    return `${base}/${module}?path=${encodeURIComponent(match)}${embedded ? "&embedded=true" : ""}`;
   }
 
   return (

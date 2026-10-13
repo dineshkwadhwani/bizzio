@@ -5,9 +5,26 @@ import { Info } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+function moduleForPath(pathname: string) {
+  if (pathname.startsWith("/admin")) return "admin";
+  if (pathname.startsWith("/superadmin")) return "superadmin";
+  if (pathname.startsWith("/app/finance")) return "finance";
+  if (pathname.startsWith("/app/attendance")) return "attendance";
+  if (pathname.startsWith("/app/leave")) return "leave";
+  if (pathname.startsWith("/app/timesheet")) return "timesheet";
+  if (pathname.startsWith("/app/dcr")) return "dcr";
+  if (pathname.startsWith("/app/expenses")) return "expenses";
+  if (pathname.startsWith("/app/approvals")) return "approvals";
+  if (pathname.startsWith("/app/reports")) return "reports";
+  return "workspace";
+}
+
 export function ContextHelpButton({ module }: { module: string }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const resolvedModule = module === "auto" ? moduleForPath(pathname) : module;
+
+  if (pathname.startsWith("/app/help") || pathname.startsWith("/help")) return null;
 
   useEffect(() => {
     if (!open) return;
@@ -58,11 +75,11 @@ export function ContextHelpButton({ module }: { module: string }) {
             </div>
             <iframe
               title="Finance page help"
-              src={`/help/${module}?path=${encodeURIComponent(pathname)}&embedded=true`}
+              src={`/help/${resolvedModule}?path=${encodeURIComponent(pathname)}&embedded=true`}
               className="min-h-[520px] flex-1 border-0 bg-white"
             />
             <div className="flex justify-end border-t border-ink-100 bg-white px-5 py-3 sm:px-6">
-              <Link href={`/app/help/${module}?path=${encodeURIComponent(pathname)}`} onClick={() => setOpen(false)} className="text-sm font-semibold text-brand-600 hover:text-brand-700">Open full help centre</Link>
+              <Link href={`/app/help/${resolvedModule}?path=${encodeURIComponent(pathname)}`} onClick={() => setOpen(false)} className="text-sm font-semibold text-brand-600 hover:text-brand-700">Open full help centre</Link>
             </div>
           </section>
         </div>

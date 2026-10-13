@@ -33,6 +33,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
+import { ContextHelpButton } from "@/components/help/ContextHelpButton";
 
 const NAV_ICONS = {
   LayoutDashboard,
@@ -213,7 +214,10 @@ export function DashboardShell({
         </div>
       )}
 
-      <main className="flex-1 p-4 sm:p-6 md:p-8">{children}</main>
+      <main className="flex-1 p-4 sm:p-6 md:p-8">
+        <ContextHelpButton module="auto" />
+        {children}
+      </main>
     </div>
   );
 }
