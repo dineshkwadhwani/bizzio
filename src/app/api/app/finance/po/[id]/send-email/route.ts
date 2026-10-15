@@ -4,6 +4,7 @@ import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { isCompanyNotificationEnabled } from "@/lib/notifications";
 import { emailTemplates, sendTenantEmail } from "@/lib/resend";
+import { buildPurchaseOrderPdf } from "@/lib/invoice-pdf";
 
 const NOTIFICATION_TYPE = "purchase_order_email_send";
 const REPLY_TO = "operations@tracksoftsolutions.com";
@@ -52,10 +53,28 @@ export async function POST(request: Request, { params }: { params: { id: string 
       igstTotal: totals.igst,
       grandTotal: totals.total
     });
+    const purchaseOrderPdf = buildPurchaseOrderPdf({
+      companyName: company.name,
+      recipientName: vendor.name,
+      documentNumber: po.po_number,
+      title: po.title,
+      documentDate: new Intl.DateTimeFormat("en-IN", { dateStyle: "long" }).format(new Date(po.created_at)),
+      lines: lineItems.map((line) => ({
+        description: line.description,
+        qty: Number(line.qty),
+        rate: Number(line.rate),
+        gstPercent: Number(line.gst_percent),
+        total: Number(line.line_total)
+      })),
+      baseTotal: totals.base,
+      gstTotal: totals.cgst + totals.sgst + totals.igst,
+      grandTotal: totals.total
+    });
     const result = await sendTenantEmail(company, {
       to: vendor.contact_email,
       bcc: parsed.data.sendCopy && guard.user.email ? [guard.user.email] : undefined,
       replyTo: REPLY_TO,
+      attachments: [{ filename: `Purchase-Order-${po.po_number}.pdf`, content: purchaseOrderPdf }],
       ...template
     });
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 502 });

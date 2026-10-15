@@ -4,6 +4,7 @@ import { requireSales } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { isCompanyNotificationEnabled } from "@/lib/notifications";
 import { emailTemplates, sendTenantEmail } from "@/lib/resend";
+import { buildQuotationPdf } from "@/lib/invoice-pdf";
 
 const NOTIFICATION_TYPE = "quotation_email_send";
 const REPLY_TO = "operations@tracksoftsolutions.com";
@@ -66,11 +67,29 @@ export async function POST(request: Request, { params }: { params: { id: string 
       igstTotal: totals.igst,
       grandTotal: totals.total
     });
+    const quotationPdf = buildQuotationPdf({
+      companyName: company.name,
+      recipientName: customer.name,
+      documentNumber: quotation.quo_number,
+      title: quotation.title,
+      documentDate: new Intl.DateTimeFormat("en-IN", { dateStyle: "long" }).format(new Date(quotation.created_at)),
+      lines: lineItems.map((line) => ({
+        description: line.description,
+        qty: Number(line.qty),
+        rate: Number(line.rate),
+        gstPercent: Number(line.gst_percent),
+        total: Number(line.line_total)
+      })),
+      baseTotal: totals.base,
+      gstTotal: totals.cgst + totals.sgst + totals.igst,
+      grandTotal: totals.total
+    });
 
     const result = await sendTenantEmail(company, {
       to: customer.contact_email,
       bcc: parsed.data.sendCopy && guard.user.email ? [guard.user.email] : undefined,
       replyTo: REPLY_TO,
+      attachments: [{ filename: `Quotation-${quotation.quo_number}.pdf`, content: quotationPdf }],
       ...template
     });
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 502 });
