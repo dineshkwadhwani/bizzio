@@ -59,7 +59,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const supabase = createClient();
     const { data: invoice, error: invoiceError } = await supabase
       .from("invoices")
-      .select("*, customer:customers(*), sales_order:sales_orders(id, so_number, status)")
+      .select("*, customer:customers(*), sales_order:sales_orders(id, so_number, status), quotation:quotations(id, quo_number)")
       .eq("id", params.id)
       .eq("company_id", guard.employee.company_id)
       .single();

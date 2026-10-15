@@ -556,6 +556,7 @@ create table invoices (
   customer_id     uuid not null references customers(id),
   title           text not null,
   so_id           uuid references sales_orders(id),
+  quotation_id    uuid references quotations(id),
   invoice_number  text not null,
   invoice_date    date not null default current_date,
   status          invoice_status not null default 'draft',

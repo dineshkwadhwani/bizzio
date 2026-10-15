@@ -8,6 +8,7 @@ type EmailOptions = {
   subject: string;
   html: string;
   replyTo?: string;
+  attachments?: Array<{ filename: string; content: string | Buffer }>;
 };
 
 export type TenantEmailConfig = {
@@ -126,7 +127,8 @@ export async function sendPlatformEmail(opts: EmailOptions) {
     ...(opts.bcc?.length ? { bcc: opts.bcc } : {}),
     subject: opts.subject,
     html: opts.html,
-    ...(opts.replyTo ? { replyTo: opts.replyTo } : {})
+    ...(opts.replyTo ? { replyTo: opts.replyTo } : {}),
+    ...(opts.attachments?.length ? { attachments: opts.attachments } : {})
   });
 }
 
@@ -156,7 +158,8 @@ export async function sendTenantEmail(config: TenantEmailConfig, opts: EmailOpti
       ...(opts.cc?.length ? { cc: opts.cc } : {}),
       ...(opts.bcc?.length ? { bcc: opts.bcc } : {}),
       subject: opts.subject,
-      html: opts.html
+      html: opts.html,
+      ...(opts.attachments?.length ? { attachments: opts.attachments } : {})
     });
   } catch {
     // Tenant configuration must never prevent a workflow notification from
@@ -178,7 +181,8 @@ export async function sendTenantTestEmail(config: TenantEmailConfig, opts: Email
     ...(opts.cc?.length ? { cc: opts.cc } : {}),
     ...(opts.bcc?.length ? { bcc: opts.bcc } : {}),
     subject: opts.subject,
-    html: opts.html
+    html: opts.html,
+    ...(opts.attachments?.length ? { attachments: opts.attachments } : {})
   });
 }
 
@@ -200,44 +204,47 @@ function buildDocumentEmail(input: {
   const companyName = escapeHtml(input.companyName);
   const recipientName = escapeHtml(input.recipientName);
   const logo = input.logoUrl
-    ? `<img src="${escapeHtml(input.logoUrl)}" alt="${companyName} logo" style="display:block;max-height:64px;max-width:220px;border:0;" />`
+    ? `<img src="${escapeHtml(input.logoUrl)}" alt="${companyName} logo" width="220" style="display:block;width:220px;max-width:100%;height:auto;max-height:64px;border:0;" />`
     : `<div style="font-size:24px;font-weight:700;color:#172033;">${companyName}</div>`;
   const rows = input.lineItems.map((line) => `<tr>
-    <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;color:#263247;">${escapeHtml(line.description)}</td>
-    <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">${line.qty}</td>
-    <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">₹${line.rate.toFixed(2)}</td>
-    <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">${line.gstPercent.toFixed(2)}%</td>
-    <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;font-weight:600;">₹${line.total.toFixed(2)}</td>
+    <td width="44%" style="padding:12px 10px;border-bottom:1px solid #e9edf2;color:#263247;word-break:break-word;">${escapeHtml(line.description)}</td>
+    <td width="12%" style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">${line.qty}</td>
+    <td width="16%" style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;white-space:nowrap;">₹${line.rate.toFixed(2)}</td>
+    <td width="12%" style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;white-space:nowrap;">${line.gstPercent.toFixed(2)}%</td>
+    <td width="16%" style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;font-weight:600;white-space:nowrap;">₹${line.total.toFixed(2)}</td>
   </tr>`).join("");
   const money = (value: number) => `₹${value.toFixed(2)}`;
   return {
     subject: `${input.documentLabel} ${escapeHtml(input.documentNumber)} — ${escapeHtml(input.title)}`,
-    html: `<!doctype html><html><body style="margin:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
-      <div style="padding:40px 16px;"><div style="max-width:720px;margin:0 auto;background:#fff;border:1px solid #e6eaf0;border-radius:16px;overflow:hidden;">
-        <div style="padding:28px 34px;border-bottom:1px solid #e9edf2;">${logo}</div>
-        <div style="padding:34px;">
-          <p style="margin:0 0 18px;font-size:16px;">Dear ${recipientName},</p>
-          <p style="font-size:15px;line-height:1.7;color:#536074;">Please find below the ${input.documentLabel.toLowerCase()} prepared by <strong>${companyName}</strong>.</p>
-          <div style="display:flex;flex-wrap:wrap;gap:24px;background:#f7f9fc;border-radius:12px;padding:18px 20px;margin:24px 0;">
-            <div><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">${input.documentLabel} number</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.documentNumber)}</div></div>
-            <div><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Title</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.title)}</div></div>
-            <div><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Date</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.date)}</div></div>
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:22px;"><thead><tr style="background:#172033;color:#fff;text-align:left;">
-            <th style="padding:11px 10px;">Description</th><th style="padding:11px 10px;text-align:right;">Qty</th><th style="padding:11px 10px;text-align:right;">Rate</th><th style="padding:11px 10px;text-align:right;">Tax</th><th style="padding:11px 10px;text-align:right;">Amount</th>
-          </tr></thead><tbody>${rows}</tbody></table>
-          <div style="margin:24px 0 0 auto;max-width:300px;font-size:13px;color:#536074;">
-            <div style="display:flex;justify-content:space-between;padding:5px 0;"><span>Subtotal</span><span>${money(input.baseTotal)}</span></div>
-            ${input.cgstTotal ? `<div style="display:flex;justify-content:space-between;padding:5px 0;"><span>CGST</span><span>${money(input.cgstTotal)}</span></div>` : ""}
-            ${input.sgstTotal ? `<div style="display:flex;justify-content:space-between;padding:5px 0;"><span>SGST</span><span>${money(input.sgstTotal)}</span></div>` : ""}
-            ${input.igstTotal ? `<div style="display:flex;justify-content:space-between;padding:5px 0;"><span>IGST</span><span>${money(input.igstTotal)}</span></div>` : ""}
-            <div style="display:flex;justify-content:space-between;border-top:2px solid #172033;padding:12px 0 0;margin-top:6px;font-size:16px;font-weight:700;color:#172033;"><span>Grand total</span><span>${money(input.grandTotal)}</span></div>
-          </div>
-          <p style="font-size:15px;line-height:1.7;color:#536074;margin:28px 0 0;">Please let us know if you have any questions regarding this document.</p>
-          <p style="font-size:15px;line-height:1.7;margin:24px 0 0;">Warm regards,<br /><strong>Operations</strong><br />${companyName}</p>
-        </div>
-        <div style="padding:18px 34px;background:#f7f9fc;color:#7a8596;font-size:11px;">This document was sent electronically from ${companyName}.</div>
-      </div></div>
+    html: `<!doctype html><html><body style="margin:0;padding:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;background:#f5f7fb;"><tr><td align="center" style="padding:40px 16px;">
+        <table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:720px;background:#fff;border:1px solid #e6eaf0;border-radius:16px;overflow:hidden;">
+          <tr><td style="padding:28px 34px;border-bottom:1px solid #e9edf2;">${logo}</td></tr>
+          <tr><td style="padding:34px;">
+            <p style="margin:0 0 18px;font-size:16px;line-height:1.5;">Dear ${recipientName},</p>
+            <p style="margin:0;font-size:15px;line-height:1.7;color:#536074;">Please find below the ${input.documentLabel.toLowerCase()} prepared by <strong>${companyName}</strong>.</p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:24px 0;background:#f7f9fc;border-radius:12px;"><tr>
+              <td width="33%" valign="top" style="padding:18px 10px 18px 20px;"><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">${input.documentLabel} number</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.documentNumber)}</div></td>
+              <td width="34%" valign="top" style="padding:18px 10px;"><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Title</div><div style="margin-top:5px;font-weight:700;word-break:break-word;">${escapeHtml(input.title)}</div></td>
+              <td width="33%" valign="top" style="padding:18px 20px 18px 10px;"><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Date</div><div style="margin-top:5px;font-weight:700;white-space:nowrap;">${escapeHtml(input.date)}</div></td>
+            </tr></table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:13px;margin-top:22px;">
+              <tr style="background:#172033;color:#fff;text-align:left;"><th width="44%" style="padding:11px 10px;text-align:left;">Description</th><th width="12%" style="padding:11px 10px;text-align:right;">Qty</th><th width="16%" style="padding:11px 10px;text-align:right;">Rate</th><th width="12%" style="padding:11px 10px;text-align:right;">Tax</th><th width="16%" style="padding:11px 10px;text-align:right;">Amount</th></tr>
+              ${rows}
+            </table>
+            <table role="presentation" width="300" cellpadding="0" cellspacing="0" border="0" align="right" style="width:300px;max-width:100%;margin-top:24px;font-size:13px;color:#536074;"><tr><td style="padding:5px 0;">Subtotal</td><td align="right" style="padding:5px 0;">${money(input.baseTotal)}</td></tr>
+              ${input.cgstTotal ? `<tr><td style="padding:5px 0;">CGST</td><td align="right" style="padding:5px 0;">${money(input.cgstTotal)}</td></tr>` : ""}
+              ${input.sgstTotal ? `<tr><td style="padding:5px 0;">SGST</td><td align="right" style="padding:5px 0;">${money(input.sgstTotal)}</td></tr>` : ""}
+              ${input.igstTotal ? `<tr><td style="padding:5px 0;">IGST</td><td align="right" style="padding:5px 0;">${money(input.igstTotal)}</td></tr>` : ""}
+              <tr><td colspan="2" style="border-top:2px solid #172033;padding-top:12px;font-size:16px;font-weight:700;color:#172033;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="font-size:16px;font-weight:700;color:#172033;">Grand total</td><td align="right" style="font-size:16px;font-weight:700;color:#172033;">${money(input.grandTotal)}</td></tr></table></td></tr>
+            </table>
+            <div style="clear:both;"></div>
+            <p style="font-size:15px;line-height:1.7;color:#536074;margin:28px 0 0;">Please let us know if you have any questions regarding this document.</p>
+            <p style="font-size:15px;line-height:1.7;margin:24px 0 0;">Warm regards,<br /><strong>Operations</strong><br />${companyName}</p>
+          </td></tr>
+          <tr><td style="padding:18px 34px;background:#f7f9fc;color:#7a8596;font-size:11px;">This document was sent electronically from ${companyName}.</td></tr>
+        </table>
+      </td></tr></table>
     </body></html>`
   };
 }
@@ -259,49 +266,21 @@ export const emailTemplates = {
     igstTotal: number;
     grandTotal: number;
   }) => {
-    const companyName = escapeHtml(input.companyName);
-    const customerName = escapeHtml(input.contactPerson || input.customerName);
-    const logo = input.logoUrl
-      ? `<img src="${escapeHtml(input.logoUrl)}" alt="${companyName} logo" style="display:block;max-height:64px;max-width:220px;border:0;" />`
-      : `<div style="font-size:24px;font-weight:700;color:#172033;">${companyName}</div>`;
-    const rows = input.lineItems.map((line) => `<tr>
-      <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;color:#263247;">${escapeHtml(line.description)}</td>
-      <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">${line.qty}</td>
-      <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">₹${line.rate.toFixed(2)}</td>
-      <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;">${line.gstPercent.toFixed(2)}%</td>
-      <td style="padding:12px 10px;border-bottom:1px solid #e9edf2;text-align:right;font-weight:600;">₹${line.total.toFixed(2)}</td>
-    </tr>`).join("");
-    const money = (value: number) => `₹${value.toFixed(2)}`;
-    return {
-      subject: `Quotation ${escapeHtml(input.quotationNumber)} — ${escapeHtml(input.title)}`,
-      html: `<!doctype html><html><body style="margin:0;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
-        <div style="padding:40px 16px;"><div style="max-width:720px;margin:0 auto;background:#fff;border:1px solid #e6eaf0;border-radius:16px;overflow:hidden;">
-          <div style="padding:28px 34px;border-bottom:1px solid #e9edf2;">${logo}</div>
-          <div style="padding:34px;">
-            <p style="margin:0 0 18px;font-size:16px;">Dear ${customerName},</p>
-            <p style="font-size:15px;line-height:1.7;color:#536074;">Please find below the quotation prepared for you by <strong>${companyName}</strong>. We appreciate the opportunity to work with you.</p>
-            <div style="display:flex;flex-wrap:wrap;gap:24px;background:#f7f9fc;border-radius:12px;padding:18px 20px;margin:24px 0;">
-              <div><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Quotation number</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.quotationNumber)}</div></div>
-              <div><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Title</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.title)}</div></div>
-              <div><div style="font-size:11px;color:#7a8596;text-transform:uppercase;letter-spacing:.06em;">Date</div><div style="margin-top:5px;font-weight:700;">${escapeHtml(input.date)}</div></div>
-            </div>
-            <table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:22px;"><thead><tr style="background:#172033;color:#fff;text-align:left;">
-              <th style="padding:11px 10px;">Description</th><th style="padding:11px 10px;text-align:right;">Qty</th><th style="padding:11px 10px;text-align:right;">Rate</th><th style="padding:11px 10px;text-align:right;">Tax</th><th style="padding:11px 10px;text-align:right;">Amount</th>
-            </tr></thead><tbody>${rows}</tbody></table>
-            <div style="margin:24px 0 0 auto;max-width:300px;font-size:13px;color:#536074;">
-              <div style="display:flex;justify-content:space-between;padding:5px 0;"><span>Subtotal</span><span>${money(input.baseTotal)}</span></div>
-              ${input.cgstTotal ? `<div style="display:flex;justify-content:space-between;padding:5px 0;"><span>CGST</span><span>${money(input.cgstTotal)}</span></div>` : ""}
-              ${input.sgstTotal ? `<div style="display:flex;justify-content:space-between;padding:5px 0;"><span>SGST</span><span>${money(input.sgstTotal)}</span></div>` : ""}
-              ${input.igstTotal ? `<div style="display:flex;justify-content:space-between;padding:5px 0;"><span>IGST</span><span>${money(input.igstTotal)}</span></div>` : ""}
-              <div style="display:flex;justify-content:space-between;border-top:2px solid #172033;padding:12px 0 0;margin-top:6px;font-size:16px;font-weight:700;color:#172033;"><span>Grand total</span><span>${money(input.grandTotal)}</span></div>
-            </div>
-            <p style="font-size:15px;line-height:1.7;color:#536074;margin:28px 0 0;">Please let us know if you have any questions or would like to discuss the quotation in more detail.</p>
-            <p style="font-size:15px;line-height:1.7;margin:24px 0 0;">Warm regards,<br /><strong>Operations</strong><br />${companyName}</p>
-          </div>
-          <div style="padding:18px 34px;background:#f7f9fc;color:#7a8596;font-size:11px;">This quotation was sent electronically from ${companyName}.</div>
-        </div></div>
-      </body></html>`
-    };
+    return buildDocumentEmail({
+      documentLabel: "Quotation",
+      documentNumber: input.quotationNumber,
+      title: input.title,
+      date: input.date,
+      companyName: input.companyName,
+      logoUrl: input.logoUrl,
+      recipientName: input.contactPerson || input.customerName,
+      lineItems: input.lineItems.map((line) => ({ description: line.description, qty: line.qty, rate: line.rate, gstPercent: line.gstPercent, total: line.total })),
+      baseTotal: input.baseTotal,
+      cgstTotal: input.cgstTotal,
+      sgstTotal: input.sgstTotal,
+      igstTotal: input.igstTotal,
+      grandTotal: input.grandTotal
+    });
   },
   purchaseOrder: (input: Omit<Parameters<typeof buildDocumentEmail>[0], "documentLabel">) => buildDocumentEmail({ ...input, documentLabel: "Purchase Order" }),
   salesInvoice: (input: Omit<Parameters<typeof buildDocumentEmail>[0], "documentLabel">) => buildDocumentEmail({ ...input, documentLabel: "Sales Invoice" }),

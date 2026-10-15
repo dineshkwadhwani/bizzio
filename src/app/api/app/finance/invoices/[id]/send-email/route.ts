@@ -4,6 +4,7 @@ import { requireOperations } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { isCompanyNotificationEnabled } from "@/lib/notifications";
 import { emailTemplates, sendTenantEmail } from "@/lib/resend";
+import { buildInvoicePdf } from "@/lib/invoice-pdf";
 
 const NOTIFICATION_TYPE = "sales_invoice_email_send";
 const REPLY_TO = "operations@tracksoftsolutions.com";
@@ -52,10 +53,28 @@ export async function POST(request: Request, { params }: { params: { id: string 
       igstTotal: totals.igst,
       grandTotal: totals.total
     });
+    const invoicePdf = buildInvoicePdf({
+      companyName: company.name,
+      customerName: customer.name,
+      invoiceNumber: invoice.invoice_number,
+      title: invoice.title,
+      invoiceDate: new Intl.DateTimeFormat("en-IN", { dateStyle: "long" }).format(new Date(invoice.invoice_date)),
+      lines: lineItems.map((line) => ({
+        description: line.description,
+        qty: Number(line.qty),
+        rate: Number(line.rate),
+        gstPercent: Number(line.gst_percent),
+        total: Number(line.line_total)
+      })),
+      baseTotal: totals.base,
+      gstTotal: totals.cgst + totals.sgst + totals.igst,
+      grandTotal: totals.total
+    });
     const result = await sendTenantEmail(company, {
       to: customer.contact_email,
       bcc: parsed.data.sendCopy && guard.user.email ? [guard.user.email] : undefined,
       replyTo: REPLY_TO,
+      attachments: [{ filename: `${invoice.invoice_number}.pdf`, content: invoicePdf }],
       ...template
     });
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 502 });

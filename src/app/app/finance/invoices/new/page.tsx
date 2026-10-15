@@ -18,6 +18,7 @@ export default function NewInvoicePage() {
   const editingId = searchParams.get("edit_id");
   const [customers, setCustomers] = useState<any[]>([]);
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [quotations, setQuotations] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState("");
   const [advances, setAdvances] = useState<any[]>([]);
   const [advanceId, setAdvanceId] = useState("");
@@ -31,6 +32,7 @@ export default function NewInvoicePage() {
   const [title, setTitle] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [salesOrderId, setSalesOrderId] = useState("");
+  const [quotationId, setQuotationId] = useState("");
   const [lines, setLines] = useState<any[]>([{ ...INITIAL_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,6 +53,7 @@ export default function NewInvoicePage() {
     }
     loadCustomers();
     fetch("/api/app/finance/sales-orders").then((res) => res.json()).then((json) => setSalesOrders((json || []).filter((order: any) => order.status !== "invoiced")));
+    fetch("/api/app/finance/invoices/source-documents").then((res) => res.json()).then((json) => setQuotations(json || []));
   }, []);
 
   useEffect(() => {
@@ -65,6 +68,7 @@ export default function NewInvoicePage() {
         setInvoiceDate(json.invoice.invoice_date || String(json.invoice.created_at || "").slice(0, 10));
         setCustomerId(json.invoice.customer_id || "");
         setSalesOrderId(json.invoice.so_id || "");
+        setQuotationId(json.invoice.quotation_id || "");
         setExistingAdvanceApplication(json.advanceApplications?.[0] || null);
         setReceipt(json.receipt || null);
         if (json.receipt) setReceiptEdit({ payment_mode: json.receipt.payment_mode, reference_number: json.receipt.reference_number || "", amount_received: Number(json.receipt.amount_received ?? json.receipt.amount), tds_amount: Number(json.receipt.tds_amount || 0), discount_amount: Number(json.receipt.discount_amount || 0), received_at: String(json.receipt.received_at || "").slice(0, 10) });
@@ -124,12 +128,25 @@ export default function NewInvoicePage() {
 
   async function selectSalesOrder(id: string) {
     setSalesOrderId(id);
+    if (id) setQuotationId("");
     if (!id) { setTitle(""); setLines([{ ...INITIAL_LINE }]); return; }
     const res = await fetch(`/api/app/finance/sales-orders/${id}`);
     const json = await res.json();
     if (!res.ok) { setError(json.error || "Unable to load sales order."); return; }
     setTitle(json.salesOrder.title || "");
     setCustomerId(json.salesOrder.customer_id);
+    setLines((json.lineItems || []).map((line: any) => ({ description: line.description, qty: Number(line.qty), rate: Number(line.rate), gst_percent: Number(line.gst_percent), gst_type: line.gst_type })));
+  }
+
+  async function selectQuotation(id: string) {
+    setQuotationId(id);
+    if (id) setSalesOrderId("");
+    if (!id) { setTitle(""); setLines([{ ...INITIAL_LINE }]); return; }
+    const res = await fetch(`/api/app/finance/invoices/source-documents/quotations/${id}`);
+    const json = await res.json();
+    if (!res.ok) { setError(json.error || "Unable to load quotation."); return; }
+    setTitle(json.quotation.title || "");
+    setCustomerId(json.quotation.customer_id);
     setLines((json.lineItems || []).map((line: any) => ({ description: line.description, qty: Number(line.qty), rate: Number(line.rate), gst_percent: Number(line.gst_percent), gst_type: line.gst_type })));
   }
 
@@ -156,6 +173,7 @@ export default function NewInvoicePage() {
       invoice_date: invoiceDate,
       customer_id: customerId,
       so_id: salesOrderId || null,
+      quotation_id: quotationId || null,
       status: editingId ? editingStatus : "draft",
       ...(editingId && !["draft", "reviewed"].includes(editingStatus) ? {} : { lines: lines.map((line) => ({
         description: line.description,
@@ -215,13 +233,23 @@ export default function NewInvoicePage() {
           <input className="input" type="date" value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} required />
           <p className="mt-1 text-xs text-ink-500">This date is used for the invoice and its invoice-issued journal entry.</p>
         </div>
-        <div>
-          <label className="label">Create from Sales Order (optional)</label>
-            <select className="input" value={salesOrderId} onChange={(e) => void selectSalesOrder(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))}>
-            <option value="">Enter items manually</option>
-            {salesOrders.map((order) => <option key={order.id} value={order.id}>{order.so_number} — {order.customer?.name}</option>)}
-          </select>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="label">Create from Sales Order</label>
+            <select className="input" value={salesOrderId} onChange={(e) => void selectSalesOrder(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))} required={!quotationId}>
+              <option value="">Select a sales order</option>
+              {salesOrders.map((order) => <option key={order.id} value={order.id}>{order.so_number} — {order.customer?.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Create from Quotation</label>
+            <select className="input" value={quotationId} onChange={(e) => void selectQuotation(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))} required={!salesOrderId}>
+              <option value="">Select a quotation</option>
+              {quotations.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.quo_number} — {quotation.customer?.name}</option>)}
+            </select>
+          </div>
         </div>
+        {!editing && <p className="-mt-3 text-xs text-ink-500">Select exactly one source document. Its customer and line items will be copied into the invoice.</p>}
 
         <div>
           <label className="label">Supporting documents / PO (optional)</label>
@@ -231,7 +259,7 @@ export default function NewInvoicePage() {
 
         <div>
           <label className="label">Customer</label>
-          <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(salesOrderId) || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))}>
+          <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={Boolean(salesOrderId || quotationId) || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))}>
             {customers.map((customer) => (
               <option key={customer.id} value={customer.id}>{customer.name}</option>
             ))}
@@ -322,7 +350,7 @@ export default function NewInvoicePage() {
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" className="btn-primary w-full" disabled={loading || !customerId || !lines.some((line) => line.description.trim())}>
+        <button type="submit" className="btn-primary w-full" disabled={loading || !customerId || (!editingId && (!salesOrderId && !quotationId)) || Boolean(salesOrderId && quotationId) || !lines.some((line) => line.description.trim())}>
           {loading ? "Saving…" : editing ? "Save Invoice Changes" : "Save Draft Invoice"}
         </button>
       </form>

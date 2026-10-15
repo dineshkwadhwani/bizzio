@@ -200,7 +200,7 @@ export default function InvoiceDetailPage() {
           </div>
           <div>
             <label className="label">Generated from</label>
-            <p className="text-ink-800">{data.invoice.so_id ? (data.invoice.sales_order?.so_number || "Sales order") : "Standalone invoice"}</p>
+            <p className="text-ink-800">{data.invoice.so_id ? (data.invoice.sales_order?.so_number || "Sales order") : data.invoice.quotation_id ? (data.invoice.quotation?.quo_number || "Quotation") : "Standalone invoice"}</p>
           </div>
           <div>
             <label className="label">Invoice date</label>

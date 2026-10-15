@@ -15,13 +15,14 @@ const InvoiceSchema = z.object({
   title: z.string().trim().min(1),
   customer_id: z.string().min(1).optional(),
   so_id: z.string().optional().nullable(),
+  quotation_id: z.string().optional().nullable(),
   invoice_date: z.string().date().default(new Date().toISOString().slice(0, 10)),
   status: z.enum(["draft", "reviewed", "sent", "paid"]).optional(),
   lines: z.array(LineItemSchema).min(1),
   advance_application: z.object({ advance_id: z.string().uuid(), amount: z.coerce.number().positive() }).optional().nullable()
-}).refine((data) => Boolean(data.so_id) || Boolean(data.customer_id), {
-  message: "Either a customer or a sales order is required.",
-  path: ["customer_id"]
+}).refine((data) => Boolean(data.so_id) !== Boolean(data.quotation_id), {
+  message: "Select either a sales order or a quotation.",
+  path: ["so_id"]
 });
 
 function calculateLineAmounts(line: { qty: number; rate: number; gst_percent: number; gst_type: "cgst_sgst" | "igst" }) {
@@ -51,7 +52,7 @@ export async function GET() {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("invoices")
-      .select("*, customer:customers(id, name), sales_order:sales_orders(id, so_number)")
+      .select("*, customer:customers(id, name), sales_order:sales_orders(id, so_number), quotation:quotations(id, quo_number)")
       .eq("company_id", guard.employee.company_id)
       .order("created_at", { ascending: false });
 
@@ -76,8 +77,10 @@ export async function POST(request: Request) {
     const companyId = guard.employee.company_id;
     let customerId = parsed.data.customer_id ?? null;
     let soId = parsed.data.so_id ?? null;
+    let quotationId = parsed.data.quotation_id ?? null;
     let lines = parsed.data.lines;
     let salesOrderTitle: string | null = null;
+    let quotationTitle: string | null = null;
 
     if (soId) {
       const { data: salesOrder, error: salesOrderError } = await supabase
@@ -108,6 +111,46 @@ export async function POST(request: Request) {
       if (soLineError) return NextResponse.json({ error: soLineError.message }, { status: 500 });
       if (soLines && soLines.length) {
         lines = soLines.map((line) => ({
+          description: line.description,
+          qty: Number(line.qty),
+          rate: Number(line.rate),
+          gst_percent: Number(line.gst_percent),
+          gst_type: line.gst_type
+        }));
+      }
+    }
+
+    if (quotationId) {
+      const { data: quotation, error: quotationError } = await supabase
+        .from("quotations")
+        .select("*")
+        .eq("id", quotationId)
+        .eq("company_id", companyId)
+        .single();
+
+      if (quotationError || !quotation) {
+        return NextResponse.json({ error: "Quotation not found in this company" }, { status: 404 });
+      }
+
+      const { data: existingInvoice } = await supabase
+        .from("invoices")
+        .select("id")
+        .eq("quotation_id", quotationId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (existingInvoice) return NextResponse.json({ error: "This quotation has already been invoiced" }, { status: 400 });
+
+      customerId = quotation.customer_id;
+      quotationTitle = quotation.title;
+      const { data: quotationLines, error: quotationLineError } = await supabase
+        .from("quotation_line_items")
+        .select("*")
+        .eq("quotation_id", quotationId)
+        .eq("company_id", companyId)
+        .order("id", { ascending: true });
+      if (quotationLineError) return NextResponse.json({ error: quotationLineError.message }, { status: 500 });
+      if (quotationLines?.length) {
+        lines = quotationLines.map((line) => ({
           description: line.description,
           qty: Number(line.qty),
           rate: Number(line.rate),
@@ -176,7 +219,7 @@ export async function POST(request: Request) {
     const calculatedLines = lines.map((line: any) => ({ description: line.description.trim(), ...calculateLineAmounts(line) }));
     const issuePostings = invoiceStatus === "draft" ? [] : [{
       source_type: "invoice_issued", event_type: "invoice_issued", entry_date: parsed.data.invoice_date,
-      description: `Invoice — ${salesOrderTitle || parsed.data.title}`,
+      description: `Invoice — ${salesOrderTitle || quotationTitle || parsed.data.title}`,
       lines: [
         { account_head_id: customer.party_account_head_id, amount: Number(totals.total.toFixed(2)), entry_type: "debit", label: "Customer Receivable" },
         { account_head_id: salesHead!.id, amount: Number(totals.base.toFixed(2)), entry_type: "credit", label: "Sales Income" },
@@ -189,7 +232,7 @@ export async function POST(request: Request) {
       p_actor_employee_id: guard.employee.id,
       p_document_id: null,
       p_payload: {
-        customer_id: customerId, so_id: soId, title: salesOrderTitle || parsed.data.title,
+        customer_id: customerId, so_id: soId, quotation_id: quotationId, title: salesOrderTitle || quotationTitle || parsed.data.title,
         invoice_date: parsed.data.invoice_date, status: invoiceStatus,
         base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)),
         sequence_year: new Date(parsed.data.invoice_date).getFullYear()
@@ -199,6 +242,14 @@ export async function POST(request: Request) {
       p_advance_application: advance ? { advance_id: advance.id, amount: parsed.data.advance_application!.amount } : null
     });
     if (atomicError || !atomicResult?.document_id) return NextResponse.json({ error: atomicError?.message || "Could not create the sales invoice atomically." }, { status: 500 });
+    if (quotationId) {
+      const { error: quotationLinkError } = await supabase
+        .from("invoices")
+        .update({ quotation_id: quotationId })
+        .eq("id", atomicResult.document_id)
+        .eq("company_id", companyId);
+      if (quotationLinkError) return NextResponse.json({ error: quotationLinkError.message }, { status: 500 });
+    }
     const [{ data: atomicInvoice }, { data: atomicLines }] = await Promise.all([
       supabase.from("invoices").select("*").eq("id", atomicResult.document_id).eq("company_id", companyId).single(),
       supabase.from("invoice_line_items").select("*").eq("invoice_id", atomicResult.document_id).eq("company_id", companyId).order("id")
