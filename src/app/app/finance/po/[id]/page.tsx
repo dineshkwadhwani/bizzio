@@ -22,6 +22,7 @@ export default function PurchaseOrderDetailPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [emailSending, setEmailSending] = useState(false);
   const [emailMessage, setEmailMessage] = useState<string | null>(null);
+  const [purchaseOrderNumber, setPurchaseOrderNumber] = useState("");
   const [sendCopy, setSendCopy] = useState(false);
 
   useEffect(() => {
@@ -33,6 +34,7 @@ export default function PurchaseOrderDetailPage() {
         return;
       }
       setData({ po: json.po, lineItems: json.lineItems || [], company: json.company });
+      setPurchaseOrderNumber(json.po.po_number || "");
       setQuotationUrl(json.quotationUrl || null);
       const paymentResponse = await fetch(`/api/app/finance/po/${params.id}/payment`);
       if (paymentResponse.ok) {
@@ -73,6 +75,16 @@ export default function PurchaseOrderDetailPage() {
     if (status === "sent") {
       router.refresh();
     }
+  }
+
+  async function savePurchaseOrderNumber() {
+    if (!data.po || data.po.status !== "draft") return;
+    setLoading(true); setError(null);
+    const response = await fetch(`/api/app/finance/po/${params.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ po_number: purchaseOrderNumber }) });
+    const result = await response.json();
+    setLoading(false);
+    if (!response.ok) { setError(typeof result.error === "string" ? result.error : "Unable to save purchase order number."); return; }
+    setData((current: any) => ({ ...current, po: result.po, lineItems: result.lineItems || current.lineItems }));
   }
 
   async function createPayment() {
@@ -138,6 +150,11 @@ export default function PurchaseOrderDetailPage() {
           <div>
             <label className="label">Vendor</label>
             <p className="text-ink-800">{data.po.vendor?.name || "Unknown vendor"}</p>
+          </div>
+          <div>
+            <label className="label">Purchase order number</label>
+            <div className="flex gap-2"><input className="input" value={purchaseOrderNumber} onChange={(event) => setPurchaseOrderNumber(event.target.value)} disabled={data.po.status !== "draft"} /><button type="button" className="btn-secondary" onClick={() => void savePurchaseOrderNumber()} disabled={loading || data.po.status !== "draft"}>Save</button></div>
+            <p className="mt-1 text-xs text-ink-500">Locked after the purchase order leaves draft.</p>
           </div>
           <div>
             <label className="label">Created</label>

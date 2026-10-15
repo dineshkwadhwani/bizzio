@@ -14,6 +14,7 @@ const LineSchema = z.object({
 const Schema = z.object({
   title: z.string().trim().min(1),
   vendor_id: z.string().uuid(),
+  invoice_number: z.string().trim().min(1).optional(),
   purchase_order_id: z.string().uuid().nullable().optional(),
   vendor_invoice_number: z.string().trim().optional().or(z.literal("")),
   invoice_date: z.string().date(),
@@ -82,6 +83,7 @@ export async function POST(request: Request) {
       p_document_id: null,
       p_payload: {
         vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title,
+        invoice_number: parsed.data.invoice_number?.trim() || null,
         vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date,
         due_date: parsed.data.due_date || null, attachment_path: parsed.data.attachment_path?.trim() || null,
         attachment_name: parsed.data.attachment_name?.trim() || null, status: parsed.data.status,

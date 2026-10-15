@@ -13,6 +13,7 @@ const LineItemSchema = z.object({
 });
 
 const UpdateSchema = z.object({
+  so_number: z.string().trim().min(1).optional(),
   customer_po_number: z.string().optional().nullable(),
   customer_po_attachment_path: z.string().optional().nullable(),
   customer_po_attachment_name: z.string().optional().nullable(),
@@ -84,7 +85,12 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const supabase = createClient();
     const updates: Record<string, any> = {};
-    const { data: previousOrder } = await supabase.from("sales_orders").select("customer_po_attachment_path").eq("id", params.id).eq("company_id", guard.employee.company_id).maybeSingle();
+    const { data: previousOrder } = await supabase.from("sales_orders").select("customer_po_attachment_path, status, so_number").eq("id", params.id).eq("company_id", guard.employee.company_id).maybeSingle();
+
+    if (parsed.data.so_number !== undefined) {
+      if (previousOrder?.status !== "created" && parsed.data.so_number.trim() !== previousOrder?.so_number) return NextResponse.json({ error: "The sales order number can only be changed while the sales order is a draft." }, { status: 400 });
+      updates.so_number = parsed.data.so_number.trim();
+    }
 
     if (parsed.data.customer_po_number !== undefined) {
       updates.customer_po_number = parsed.data.customer_po_number?.trim() || null;

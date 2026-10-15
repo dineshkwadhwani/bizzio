@@ -29,7 +29,7 @@ export default function NewInvoicePage() {
   const [existingAdvanceApplication, setExistingAdvanceApplication] = useState<any | null>(null);
   const [receipt, setReceipt] = useState<any | null>(null);
   const [receiptEdit, setReceiptEdit] = useState<any | null>(null);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(""); const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10));
   const [salesOrderId, setSalesOrderId] = useState("");
   const [quotationId, setQuotationId] = useState("");
@@ -64,7 +64,7 @@ export default function NewInvoicePage() {
       .then(({ ok, json }) => {
         if (!ok) { setError(json.error || "Unable to load invoice for editing."); return; }
         setEditingStatus(json.invoice.status);
-        setTitle(json.invoice.title || "");
+        setTitle(json.invoice.title || ""); setInvoiceNumber(json.invoice.invoice_number || "");
         setInvoiceDate(json.invoice.invoice_date || String(json.invoice.created_at || "").slice(0, 10));
         setCustomerId(json.invoice.customer_id || "");
         setSalesOrderId(json.invoice.so_id || "");
@@ -170,6 +170,7 @@ export default function NewInvoicePage() {
 
     const payload = {
       title,
+      invoice_number: invoiceNumber.trim() || undefined,
       invoice_date: invoiceDate,
       customer_id: customerId,
       so_id: salesOrderId || null,
@@ -227,6 +228,11 @@ export default function NewInvoicePage() {
         <div>
           <label className="label">Invoice title</label>
           <input className="input" placeholder="e.g. March consulting invoice" value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </div>
+        <div>
+          <label className="label">Invoice number (optional)</label>
+          <input className="input" placeholder="Auto-generated on save" value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} disabled={editing && editingStatus !== "draft"} />
+          <p className="mt-1 text-xs text-ink-500">Leave blank to use the automatically generated number. It can only be changed while draft.</p>
         </div>
         <div>
           <label className="label">Invoice date</label>

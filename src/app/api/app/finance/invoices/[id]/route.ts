@@ -16,6 +16,7 @@ const LineItemSchema = z.object({
 
 const UpdateSchema = z.object({
   title: z.string().trim().min(1).optional(),
+  invoice_number: z.string().trim().min(1).optional(),
   customer_id: z.string().uuid().optional(),
   invoice_date: z.string().date().optional(),
   status: z.enum(["draft", "reviewed", "sent", "paid"]).optional(),
@@ -114,6 +115,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     if (existingError || !existing) {
       return NextResponse.json({ error: existingError?.code === "PGRST116" ? "Invoice not found" : existingError?.message || "Invoice not found" }, { status: existingError?.code === "PGRST116" ? 404 : 500 });
+    }
+
+    if (parsed.data.invoice_number !== undefined && existing.status !== "draft" && parsed.data.invoice_number.trim() !== existing.invoice_number) {
+      return NextResponse.json({ error: "The sales invoice number can only be changed while the invoice is a draft." }, { status: 400 });
     }
 
     const [{ data: receipts }, { data: advanceApplications }] = await Promise.all([
@@ -227,10 +232,14 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       }
       const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {
         p_operation: "sales_invoice_edit", p_company_id: guard.employee.company_id, p_actor_employee_id: guard.employee.id, p_document_id: params.id,
-        p_payload: { customer_id: parsed.data.customer_id, title: parsed.data.title, invoice_date: parsed.data.invoice_date, status: receiptStatusOverride ?? parsed.data.status, base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)), attachment_path: parsed.data.attachment_path, attachment_name: parsed.data.attachment_name },
+        p_payload: { customer_id: parsed.data.customer_id, invoice_number: parsed.data.invoice_number, title: parsed.data.title, invoice_date: parsed.data.invoice_date, status: receiptStatusOverride ?? parsed.data.status, base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)), attachment_path: parsed.data.attachment_path, attachment_name: parsed.data.attachment_name },
         p_lines: calculated, p_issue_postings: issuePostings
       });
       if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
+      if (parsed.data.invoice_number !== undefined) {
+        const { error: numberError } = await supabase.from("invoices").update({ invoice_number: parsed.data.invoice_number.trim() }).eq("id", params.id).eq("company_id", guard.employee.company_id);
+        if (numberError) return NextResponse.json({ error: numberError.message }, { status: 400 });
+      }
       const [{ data: updatedInvoice }, { data: updatedLines }] = await Promise.all([
         supabase.from("invoices").select("*").eq("id", params.id).eq("company_id", guard.employee.company_id).single(),
         supabase.from("invoice_line_items").select("*").eq("invoice_id", params.id).eq("company_id", guard.employee.company_id).order("id")
@@ -247,6 +256,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const updates: Record<string, any> = {};
 
     if (parsed.data.title !== undefined) updates.title = parsed.data.title;
+    if (parsed.data.invoice_number !== undefined) updates.invoice_number = parsed.data.invoice_number.trim();
     if (parsed.data.customer_id !== undefined) updates.customer_id = parsed.data.customer_id;
     if (parsed.data.invoice_date !== undefined) updates.invoice_date = parsed.data.invoice_date;
     if (parsed.data.status || receiptStatusOverride) {

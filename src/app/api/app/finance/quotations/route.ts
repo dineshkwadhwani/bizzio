@@ -14,6 +14,7 @@ const LineItemSchema = z.object({
 const QuotationSchema = z.object({
   title: z.string().trim().min(1),
   customer_id: z.string().min(1),
+  quo_number: z.string().trim().min(1).optional(),
   status: z.enum(["draft", "reviewed", "sent", "accepted", "rejected", "expired"]).optional(),
   lines: z.array(LineItemSchema).min(1),
   attachment_path: z.string().trim().nullable().optional(),
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
         company_id: guard.employee.company_id,
         customer_id: parsed.data.customer_id,
         title: parsed.data.title,
-        quo_number: quoNumber,
+        quo_number: parsed.data.quo_number?.trim() || quoNumber,
         status,
         created_by: guard.employee.id,
         sent_at: status === "sent" ? new Date().toISOString() : null,

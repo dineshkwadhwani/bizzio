@@ -15,7 +15,7 @@ export default function NewQuotationPage() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
   const [customerId, setCustomerId] = useState("");
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(""); const [quotationNumber, setQuotationNumber] = useState("");
   const [lines, setLines] = useState<any[]>([{ ...INITIAL_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -54,6 +54,7 @@ export default function NewQuotationPage() {
 
     const payload = {
       title,
+      quo_number: quotationNumber.trim() || undefined,
       customer_id: customerId,
       status: "draft",
       lines: lines.map((line) => ({
@@ -100,6 +101,11 @@ export default function NewQuotationPage() {
         <div>
           <label className="label">Quotation title</label>
           <input className="input" placeholder="e.g. Office catering proposal" value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </div>
+        <div>
+          <label className="label">Quotation number (optional)</label>
+          <input className="input" placeholder="Auto-generated on save" value={quotationNumber} onChange={(e) => setQuotationNumber(e.target.value)} />
+          <p className="mt-1 text-xs text-ink-500">Leave blank to use the automatically generated number.</p>
         </div>
         <div><label className="label">Supporting document</label><input className="input" type="file" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx" onChange={(event) => setAttachment(event.target.files?.[0] || null)} /><p className="mt-1 text-xs text-ink-500">Attach the customer quotation, proposal, or supporting scope document.</p></div>
         <div>

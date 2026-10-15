@@ -14,6 +14,7 @@ const LineItemSchema = z.object({
 
 const UpdateSchema = z.object({
   vendor_id: z.string().min(1).optional(),
+  po_number: z.string().trim().min(1).optional(),
   supplier_quotation_path: z.string().optional().nullable(),
   supplier_quotation_name: z.string().optional().nullable(),
   status: z.enum(["draft", "reviewed", "sent"]).optional(),
@@ -83,7 +84,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     const supabase = createClient();
     const updates: Record<string, any> = {};
-    const { data: previousPurchaseOrder } = await supabase.from("purchase_orders").select("supplier_quotation_path").eq("id", params.id).eq("company_id", guard.employee.company_id).maybeSingle();
+    const { data: previousPurchaseOrder } = await supabase.from("purchase_orders").select("supplier_quotation_path, status, po_number").eq("id", params.id).eq("company_id", guard.employee.company_id).maybeSingle();
 
     if (parsed.data.vendor_id) {
       const { data: vendor, error: vendorError } = await supabase
@@ -97,6 +98,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         return NextResponse.json({ error: "Vendor not found in this company" }, { status: 404 });
       }
       updates.vendor_id = parsed.data.vendor_id;
+    }
+    if (parsed.data.po_number !== undefined) {
+      if (previousPurchaseOrder?.status !== "draft" && parsed.data.po_number.trim() !== previousPurchaseOrder?.po_number) return NextResponse.json({ error: "The purchase order number can only be changed while the purchase order is a draft." }, { status: 400 });
+      updates.po_number = parsed.data.po_number.trim();
     }
     if (parsed.data.supplier_quotation_path !== undefined) updates.supplier_quotation_path = parsed.data.supplier_quotation_path?.trim() || null;
     if (parsed.data.supplier_quotation_name !== undefined) updates.supplier_quotation_name = parsed.data.supplier_quotation_name?.trim() || null;

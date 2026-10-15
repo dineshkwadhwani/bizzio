@@ -18,6 +18,7 @@ export default function SalesOrderDetailPage() {
   const [lineItems, setLineItems] = useState<any[]>([]);
   const [reviewed, setReviewed] = useState(false);
   const [customerPoNumber, setCustomerPoNumber] = useState("");
+  const [salesOrderNumber, setSalesOrderNumber] = useState("");
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,6 +35,7 @@ export default function SalesOrderDetailPage() {
       setSalesOrder(json.salesOrder);
       setLineItems((json.lineItems || []).map((line: any) => ({ ...line })));
       setCustomerPoNumber(json.salesOrder.customer_po_number || "");
+      setSalesOrderNumber(json.salesOrder.so_number || "");
       setAttachmentUrl(json.attachmentUrl || null);
       setAttachmentName(json.salesOrder.customer_po_attachment_name || "");
       setReviewed(json.salesOrder.status !== "created");
@@ -66,6 +68,7 @@ export default function SalesOrderDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         customer_po_number: customerPoNumber,
+        so_number: salesOrderNumber,
         lines: lineItems.map((line) => ({
           description: line.description,
           qty: Number(line.qty),
@@ -84,6 +87,7 @@ export default function SalesOrderDetailPage() {
     setLineItems((json.lineItems || []).map((line: any) => ({ ...line })));
     setSalesOrder(json.salesOrder);
     setCustomerPoNumber(json.salesOrder.customer_po_number || "");
+    setSalesOrderNumber(json.salesOrder.so_number || "");
   }
 
   async function sendSalesOrder() {
@@ -175,6 +179,11 @@ export default function SalesOrderDetailPage() {
           <div>
             <label className="label">Customer</label>
             <p className="text-ink-800">{salesOrder.customer?.name || "Unknown customer"}</p>
+          </div>
+          <div>
+            <label className="label">Sales order number</label>
+            <input className="input" value={salesOrderNumber} onChange={(e) => setSalesOrderNumber(e.target.value)} disabled={salesOrder.status !== "created"} />
+            <p className="mt-1 text-xs text-ink-500">Locked after the sales order leaves draft.</p>
           </div>
           <div>
             <label className="label">Customer PO Number</label>

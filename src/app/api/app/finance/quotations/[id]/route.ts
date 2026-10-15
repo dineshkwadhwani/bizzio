@@ -15,6 +15,7 @@ const LineItemSchema = z.object({
 const UpdateSchema = z.object({
   title: z.string().trim().min(1).optional(),
   customer_id: z.string().min(1).optional(),
+  quo_number: z.string().trim().min(1).optional(),
   status: z.enum(["draft", "reviewed", "sent", "accepted", "rejected", "expired"]).optional(),
   lines: z.array(LineItemSchema).optional(),
   attachment_path: z.string().trim().nullable().optional(),
@@ -92,7 +93,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const updates: Record<string, any> = {};
     const { data: previousQuotation } = await supabase
       .from("quotations")
-      .select("attachment_path")
+      .select("attachment_path, status, quo_number")
       .eq("id", params.id)
       .eq("company_id", guard.employee.company_id)
       .maybeSingle();
@@ -111,6 +112,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       updates.customer_id = parsed.data.customer_id;
     }
     if (parsed.data.title !== undefined) updates.title = parsed.data.title.trim();
+    if (parsed.data.quo_number !== undefined) {
+      if (previousQuotation?.status !== "draft" && parsed.data.quo_number.trim() !== previousQuotation?.quo_number) return NextResponse.json({ error: "The quotation number can only be changed while the quotation is a draft." }, { status: 400 });
+      updates.quo_number = parsed.data.quo_number.trim();
+    }
 
     if (parsed.data.status) {
       updates.status = parsed.data.status;

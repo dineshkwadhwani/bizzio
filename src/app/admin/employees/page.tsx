@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { EmployeeList } from "@/components/admin/EmployeeList";
 
 export const revalidate = 0;
 
@@ -38,22 +39,7 @@ export default async function EmployeesPage({
         />
       </form>
 
-      <div className="mt-6 grid gap-4">
-        {employees?.map((e: any) => (
-          <Link key={e.id} href={`/admin/employees/${e.id}`} className="card block transition hover:-translate-y-0.5 hover:shadow-md">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0"><h2 className="break-words text-lg font-semibold text-brand-600">{e.name}</h2><p className="break-all text-sm text-ink-400">{e.email} · {e.employee_code}</p></div>
-              <span className={`badge ${e.status === "active" ? "bg-green-50 text-green-700" : "bg-ink-100 text-ink-500"}`}>{e.status}</span>
-            </div>
-            <div className="mt-4 grid gap-2 text-sm text-ink-600 sm:grid-cols-2">
-              <p><span className="text-ink-400">Department / Title:</span> {e.departments?.name ?? "—"} / {e.titles?.name ?? "—"}</p>
-              <p><span className="text-ink-400">Manager:</span> {e.reporting_manager?.name ?? "— (root)"}</p>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1"><span className="badge bg-pastel-sky text-ink-700">{e.hierarchy_role ?? (e.reporting_manager ? (e.is_director ? "Director" : e.is_manager ? "Manager" : "Employee") : "CEO")}</span>{e.is_finance && <span className="badge bg-pastel-mint text-ink-700">Finance</span>}{e.is_hr && <span className="badge bg-pastel-lilac text-ink-700">HR</span>}{e.is_operations && <span className="badge bg-pastel-sky text-ink-700">Operations</span>}{e.is_support && <span className="badge bg-pastel-lemon text-ink-700">Support</span>}{e.is_software_engineer && <span className="badge bg-pastel-sky text-ink-700">Software Engineer</span>}{e.is_sales && <span className="badge bg-pastel-lemon text-ink-700">Sales</span>}</div>
-          </Link>
-        ))}
-        {!employees?.length && <div className="card py-8 text-center text-ink-400">No employees yet.</div>}
-      </div>
+      <EmployeeList employees={(employees ?? []) as any} />
     </div>
   );
 }

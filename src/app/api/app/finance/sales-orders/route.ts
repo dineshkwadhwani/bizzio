@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 const CreateSalesOrderSchema = z.object({
   title: z.string().trim().min(1),
   customer_id: z.string().min(1).optional(),
+  so_number: z.string().trim().min(1).optional(),
   quotation_id: z.string().min(1).optional().nullable(),
   lines: z.array(z.object({ description: z.string().min(1), qty: z.coerce.number().positive(), rate: z.coerce.number().min(0), gst_percent: z.coerce.number().min(0).max(100), gst_type: z.enum(["cgst_sgst", "igst"]) })).optional(),
   customer_po_number: z.string().optional().or(z.literal("")),
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
         customer_id: customerId,
         title: quotationTitle || parsed.data.title,
         quotation_id: quotation?.id || null,
-        so_number: soNumber,
+        so_number: parsed.data.so_number?.trim() || soNumber,
         customer_po_number: parsed.data.customer_po_number?.trim() || null,
         status,
         created_by: guard.employee.id,

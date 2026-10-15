@@ -11,6 +11,7 @@ export default function QuotationDetailPage() {
   const [data, setData] = useState<any>({ quotation: null, lineItems: [] });
   const [customers, setCustomers] = useState<any[]>([]);
   const [draftTitle, setDraftTitle] = useState("");
+  const [draftNumber, setDraftNumber] = useState("");
   const [draftCustomerId, setDraftCustomerId] = useState("");
   const [draftLines, setDraftLines] = useState<any[]>([]);
   const [savingChanges, setSavingChanges] = useState(false);
@@ -32,6 +33,7 @@ export default function QuotationDetailPage() {
       }
       setData({ quotation: json.quotation, lineItems: json.lineItems || [], company: json.company });
       setDraftTitle(json.quotation.title);
+      setDraftNumber(json.quotation.quo_number);
       setDraftCustomerId(json.quotation.customer_id);
       setDraftLines(json.lineItems || []);
       const customerResponse = await fetch("/api/app/finance/customers");
@@ -74,6 +76,7 @@ export default function QuotationDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: draftTitle,
+        quo_number: draftNumber,
         customer_id: draftCustomerId,
         lines: draftLines.map((line) => ({
           description: line.description,
@@ -92,6 +95,7 @@ export default function QuotationDetailPage() {
     }
     setData((current: any) => ({ ...current, quotation: result.quotation, lineItems: result.lineItems || [] }));
     setDraftTitle(result.quotation.title);
+    setDraftNumber(result.quotation.quo_number);
     setDraftCustomerId(result.quotation.customer_id);
     setDraftLines(result.lineItems || []);
     setSavingChanges(false);
@@ -181,6 +185,11 @@ export default function QuotationDetailPage() {
               onChange={(event) => setDraftTitle(event.target.value)}
               placeholder="Enter quotation title"
             />
+          </div>
+          <div>
+            <label className="label" htmlFor="quotation-number">Quotation number</label>
+            <input id="quotation-number" className="input mt-1" value={draftNumber} onChange={(event) => setDraftNumber(event.target.value)} disabled={data.quotation.status !== "draft"} />
+            <p className="mt-1 text-xs text-ink-500">Locked after the quotation leaves draft.</p>
           </div>
           <div>
             <label className="label">Customer</label>

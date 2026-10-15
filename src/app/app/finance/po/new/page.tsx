@@ -16,7 +16,7 @@ export default function NewPurchaseOrderPage() {
   const router = useRouter();
   const [vendors, setVendors] = useState<any[]>([]);
   const [vendorId, setVendorId] = useState("");
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(""); const [purchaseOrderNumber, setPurchaseOrderNumber] = useState("");
   const [lines, setLines] = useState<any[]>([{ ...INITIAL_LINE }]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -72,6 +72,7 @@ export default function NewPurchaseOrderPage() {
 
     const payload = {
       title,
+      po_number: purchaseOrderNumber.trim() || undefined,
       vendor_id: vendorId,
       status: "draft",
       lines: lines.map((line) => ({
@@ -118,6 +119,11 @@ export default function NewPurchaseOrderPage() {
         <div>
           <label className="label">Purchase order title</label>
           <input className="input" placeholder="e.g. Office supplies - September" value={title} onChange={(e) => setTitle(e.target.value)} required />
+        </div>
+        <div>
+          <label className="label">Purchase order number (optional)</label>
+          <input className="input" placeholder="Auto-generated on save" value={purchaseOrderNumber} onChange={(e) => setPurchaseOrderNumber(e.target.value)} />
+          <p className="mt-1 text-xs text-ink-500">Leave blank to use the automatically generated number.</p>
         </div>
         <div>
           <label className="label">Vendor</label>

@@ -13,6 +13,7 @@ const LineItemSchema = z.object({
 
 const InvoiceSchema = z.object({
   title: z.string().trim().min(1),
+  invoice_number: z.string().trim().min(1).optional(),
   customer_id: z.string().min(1).optional(),
   so_id: z.string().optional().nullable(),
   quotation_id: z.string().optional().nullable(),
@@ -233,6 +234,7 @@ export async function POST(request: Request) {
       p_document_id: null,
       p_payload: {
         customer_id: customerId, so_id: soId, quotation_id: quotationId, title: salesOrderTitle || quotationTitle || parsed.data.title,
+        invoice_number: parsed.data.invoice_number?.trim() || null,
         invoice_date: parsed.data.invoice_date, status: invoiceStatus,
         base_amount: Number(totals.base.toFixed(2)), gst_amount: Number(totals.gst.toFixed(2)), total_amount: Number(totals.total.toFixed(2)),
         sequence_year: new Date(parsed.data.invoice_date).getFullYear()

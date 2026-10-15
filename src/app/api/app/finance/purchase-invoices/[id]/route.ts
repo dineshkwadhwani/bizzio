@@ -16,6 +16,7 @@ const LineSchema = z.object({
 });
 const EditSchema = z.object({
   title: z.string().trim().min(1),
+  invoice_number: z.string().trim().min(1).optional(),
   vendor_id: z.string().uuid(),
   purchase_order_id: z.string().uuid().nullable().optional(),
   vendor_invoice_number: z.string().trim().optional().or(z.literal("")),
@@ -90,6 +91,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const { data: invoice } = await supabase.from("purchase_invoices").select("*").eq("id", params.id).eq("company_id", companyId).single();
     if (!invoice) return NextResponse.json({ error: "Purchase invoice not found." }, { status: 404 });
     if (invoice.status === "cancelled") return NextResponse.json({ error: "Cancelled purchase invoices cannot be edited." }, { status: 400 });
+    if (parsed.data.invoice_number !== undefined && invoice.status !== "draft" && parsed.data.invoice_number.trim() !== invoice.invoice_number) return NextResponse.json({ error: "The purchase invoice number can only be changed while the invoice is a draft." }, { status: 400 });
 
     const { data: vendor } = await supabase.from("vendors").select("id,party_account_head_id").eq("id", parsed.data.vendor_id).eq("company_id", companyId).single();
     if (!vendor?.party_account_head_id) return NextResponse.json({ error: "Vendor payable account is missing." }, { status: 400 });
@@ -194,11 +196,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       const nextAttachmentName = parsed.data.remove_attachment ? null : parsed.data.attachment_name !== undefined ? parsed.data.attachment_name?.trim() || null : invoice.attachment_name;
       const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_document_operation", {
         p_operation: "purchase_invoice_edit", p_company_id: companyId, p_actor_employee_id: guard.employee.id, p_document_id: params.id,
-        p_payload: { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: nextStatus, base_amount: base, gst_amount: gst, total_amount: total, attachment_path: nextAttachmentPath, attachment_name: nextAttachmentName },
+        p_payload: { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, invoice_number: parsed.data.invoice_number, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: nextStatus, base_amount: base, gst_amount: gst, total_amount: total, attachment_path: nextAttachmentPath, attachment_name: nextAttachmentName },
         p_lines: calculated.map((line) => ({ ...line, description: line.description.trim() })),
         p_issue_postings: [{ source_type: "purchase_invoice_issued", event_type: "purchase_invoice", entry_date: parsed.data.invoice_date, description: `Purchase invoice — ${parsed.data.title}`, lines: issueLines }]
       });
       if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
+      if (parsed.data.invoice_number !== undefined) {
+        const { error: numberError } = await supabase.from("purchase_invoices").update({ invoice_number: parsed.data.invoice_number.trim() }).eq("id", params.id).eq("company_id", companyId);
+        if (numberError) return NextResponse.json({ error: numberError.message }, { status: 400 });
+      }
       if (previousAttachmentPath && previousAttachmentPath !== nextAttachmentPath) await removeUnreferencedAttachments(supabase, companyId, [{ path: previousAttachmentPath, bucket: "transaction-documents" }]);
       const [{ data: updatedInvoice }, { data: updatedLines }] = await Promise.all([
         supabase.from("purchase_invoices").select("*").eq("id", params.id).eq("company_id", companyId).single(),
@@ -216,12 +222,16 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         p_company_id: companyId,
         p_actor_employee_id: guard.employee.id,
         p_document_id: params.id,
-        p_payload: { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: editedPaidTotal >= total - 0.005 ? "paid" : editedPaidTotal > 0 ? "partially_paid" : "received", base_amount: base, gst_amount: gst, total_amount: total, attachment_path: parsed.data.remove_attachment ? null : parsed.data.attachment_path !== undefined ? parsed.data.attachment_path?.trim() || null : invoice.attachment_path, attachment_name: parsed.data.remove_attachment ? null : parsed.data.attachment_name !== undefined ? parsed.data.attachment_name?.trim() || null : invoice.attachment_name },
+        p_payload: { vendor_id: vendor.id, purchase_order_id: parsed.data.purchase_order_id || null, invoice_number: parsed.data.invoice_number, title: parsed.data.title, vendor_invoice_number: parsed.data.vendor_invoice_number?.trim() || null, invoice_date: parsed.data.invoice_date, due_date: parsed.data.due_date || null, status: editedPaidTotal >= total - 0.005 ? "paid" : editedPaidTotal > 0 ? "partially_paid" : "received", base_amount: base, gst_amount: gst, total_amount: total, attachment_path: parsed.data.remove_attachment ? null : parsed.data.attachment_path !== undefined ? parsed.data.attachment_path?.trim() || null : invoice.attachment_path, attachment_name: parsed.data.remove_attachment ? null : parsed.data.attachment_name !== undefined ? parsed.data.attachment_name?.trim() || null : invoice.attachment_name },
         p_lines: calculated.map((line) => ({ ...line, description: line.description.trim() })),
         p_issue_postings: [{ source_type: "purchase_invoice_issued", event_type: "purchase_invoice", entry_date: parsed.data.invoice_date, description: `Purchase invoice — ${parsed.data.title}`, lines: issueLines }],
         p_payments: parsed.data.payments
       });
       if (atomicError) return NextResponse.json({ error: atomicError.message }, { status: 500 });
+      if (parsed.data.invoice_number !== undefined) {
+        const { error: numberError } = await supabase.from("purchase_invoices").update({ invoice_number: parsed.data.invoice_number.trim() }).eq("id", params.id).eq("company_id", companyId);
+        if (numberError) return NextResponse.json({ error: numberError.message }, { status: 400 });
+      }
       const [{ data: updatedInvoice }, { data: updatedLines }] = await Promise.all([
         supabase.from("purchase_invoices").select("*").eq("id", params.id).eq("company_id", companyId).single(),
         supabase.from("purchase_invoice_line_items").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId).order("id")
