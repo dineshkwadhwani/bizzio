@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
 import { createRegistrationOrder } from "@/lib/razorpay";
-import { activatePaidRegistration } from "@/lib/registration-payment";
 
 const RegisterSchema = z.object({
   contact_email: z.string().email(),
@@ -116,7 +115,12 @@ export async function POST(request: Request) {
     const checkout = await supabase.from("registration_checkouts").insert({ company_id: company.id, plan_id: plan.id, coupon_id: coupon?.id ?? null, contact_email: normalizedEmail, subtotal, discount_amount: discountAmount, total_amount: totalAmount, status: "paid", payment_verified_at: new Date().toISOString(), registration_payload: registrationData }).select().single();
     if (checkout.error) return NextResponse.json({ error: checkout.error.message }, { status: 500 });
     if (coupon) await supabase.from("coupon_redemptions").insert({ coupon_id: coupon.id, checkout_id: checkout.data.id, company_id: company.id, contact_email: normalizedEmail, discount_amount: discountAmount });
-    await activatePaidRegistration(company.id, "coupon-free");
+    try {
+      const tpl = emailTemplates.registrationReceived(company.name);
+      await sendPlatformEmail({ to: company.contact_email, ...tpl });
+    } catch {
+      // Non-fatal — registration still succeeds even if the acknowledgement email fails.
+    }
     return NextResponse.json({ company, requires_payment: false, total_amount: totalAmount });
   }
 

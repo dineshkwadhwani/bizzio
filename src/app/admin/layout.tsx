@@ -11,6 +11,7 @@ const NAV: NavItem[] = [
   { href: "/admin/employees", label: "Employees", icon: "Users", section: "People" },
   { href: "/admin/departments", label: "Departments", icon: "Building2", section: "People" },
   { href: "/admin/titles", label: "Titles", icon: "Tags", section: "People" },
+  { href: "/admin/projects", label: "Projects", icon: "BookOpen", section: "People" },
   { href: "/admin/permission-templates", label: "Permission Templates", icon: "ShieldCheck", section: "Configuration" },
   { href: "/admin/holiday-calendar", label: "Holiday Calendar", icon: "CalendarDays", section: "Configuration" },
   { href: "/admin/leave-types", label: "Leave Types", icon: "Plane", section: "Configuration" },

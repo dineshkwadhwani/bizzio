@@ -1,7 +1,7 @@
 import { Resend } from "resend";
 import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
 
-type EmailOptions = {
+export type EmailOptions = {
   to: string;
   cc?: string[];
   bcc?: string[];
@@ -137,20 +137,35 @@ export async function sendPlatformEmail(opts: EmailOptions) {
  * The API key is read server-side from the company's encrypted configuration.
  */
 export async function sendTenantEmail(config: TenantEmailConfig, opts: EmailOptions) {
+  const tracked = await sendTenantEmailTracked(config, opts);
+  return tracked.result;
+}
+
+export async function sendTenantEmailTracked(config: TenantEmailConfig, opts: EmailOptions) {
+  const tenantConfigurationComplete = Boolean(
+    config.resend_enabled &&
+    config.resend_api_key_encrypted &&
+    config.resend_from_name &&
+    config.resend_from_email &&
+    config.resend_domain_verified
+  );
   if (
-    !config.resend_enabled ||
-    !config.resend_api_key_encrypted ||
-    !config.resend_from_name ||
-    !config.resend_from_email ||
-    !config.resend_domain_verified
+    !tenantConfigurationComplete
   ) {
-    return sendPlatformEmail(opts);
+    return {
+      result: await sendPlatformEmail(opts),
+      senderName: process.env.RESEND_FROM_NAME ?? "Bizzio Online",
+      senderEmail: process.env.RESEND_FROM_EMAIL ?? "contact@bizzio.online",
+      senderSource: "platform" as const,
+      fallbackReason: "tenant_configuration_incomplete"
+    };
   }
 
   try {
-    const resend = getResend(decryptTenantApiKey(config.resend_api_key_encrypted));
-    return await resend.emails.send({
-      from: `${config.resend_from_name} <${config.resend_from_email}>`,
+    const resend = getResend(decryptTenantApiKey(config.resend_api_key_encrypted!));
+    return {
+      result: await resend.emails.send({
+      from: `${config.resend_from_name!} <${config.resend_from_email!}>`,
       ...(config.resend_reply_to || opts.replyTo
         ? { replyTo: opts.replyTo ?? config.resend_reply_to! }
         : {}),
@@ -160,11 +175,27 @@ export async function sendTenantEmail(config: TenantEmailConfig, opts: EmailOpti
       subject: opts.subject,
       html: opts.html,
       ...(opts.attachments?.length ? { attachments: opts.attachments } : {})
-    });
-  } catch {
-    // Tenant configuration must never prevent a workflow notification from
-    // being delivered. Fall back to Bizzio's global sender.
-    return sendPlatformEmail(opts);
+      }),
+      senderName: config.resend_from_name!,
+      senderEmail: config.resend_from_email!,
+      senderSource: "tenant" as const,
+      fallbackReason: null
+    };
+  } catch (error) {
+    // Do not silently send a tenant document from Bizzio's platform address.
+    // The tracked document-mail path records this failure and reports it to
+    // the caller so the sender configuration can be corrected.
+    return {
+      result: {
+        error: {
+          message: error instanceof Error ? error.message : "The tenant email could not be sent."
+        }
+      },
+      senderName: config.resend_from_name!,
+      senderEmail: config.resend_from_email!,
+      senderSource: "tenant" as const,
+      fallbackReason: error instanceof Error ? `tenant_send_failed: ${error.message}` : "tenant_send_failed"
+    };
   }
 }
 

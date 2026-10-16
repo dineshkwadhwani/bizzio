@@ -3,7 +3,8 @@ import { z } from "zod";
 import { requireSales } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { isCompanyNotificationEnabled } from "@/lib/notifications";
-import { emailTemplates, sendTenantEmail } from "@/lib/resend";
+import { emailTemplates } from "@/lib/resend";
+import { sendLoggedTenantEmail } from "@/lib/email-log";
 import { buildQuotationPdf } from "@/lib/invoice-pdf";
 
 const NOTIFICATION_TYPE = "quotation_email_send";
@@ -85,12 +86,18 @@ export async function POST(request: Request, { params }: { params: { id: string 
       grandTotal: totals.total
     });
 
-    const result = await sendTenantEmail(company, {
+    const result = await sendLoggedTenantEmail(company, {
       to: customer.contact_email,
       bcc: parsed.data.sendCopy && guard.user.email ? [guard.user.email] : undefined,
       replyTo: REPLY_TO,
       attachments: [{ filename: `Quotation-${quotation.quo_number}.pdf`, content: quotationPdf }],
       ...template
+    }, {
+      companyId: guard.employee.company_id,
+      employeeId: guard.employee.id,
+      documentType: "quotation",
+      documentId: params.id,
+      notificationType: NOTIFICATION_TYPE
     });
     if (result.error) return NextResponse.json({ error: result.error.message }, { status: 502 });
     return NextResponse.json({ sent: true, to: customer.contact_email });

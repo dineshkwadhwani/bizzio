@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getRazorpay, verifyPaymentSignature } from "@/lib/razorpay";
-import { activatePaidRegistration } from "@/lib/registration-payment";
 
 const Schema = z.object({ checkout_id: z.string().uuid(), razorpay_order_id: z.string().min(1), razorpay_payment_id: z.string().min(1), razorpay_signature: z.string().min(1) });
 
@@ -30,7 +29,5 @@ export async function POST(request: Request) {
   await admin.from("registration_checkouts").update({ status: "paid", razorpay_payment_id: parsed.data.razorpay_payment_id, payment_verified_at: new Date().toISOString() }).eq("id", checkout.id);
   await admin.from("payments").update({ status: "success", razorpay_payment_id: parsed.data.razorpay_payment_id }).eq("checkout_id", checkout.id);
   if (checkout.coupon_id) await admin.from("coupon_redemptions").insert({ coupon_id: checkout.coupon_id, checkout_id: checkout.id, company_id: checkout.company_id, contact_email: checkout.contact_email, discount_amount: checkout.discount_amount });
-  try { await activatePaidRegistration(checkout.company_id, parsed.data.razorpay_payment_id, checkout.id); }
-  catch (error) { return NextResponse.json({ error: (error as Error).message || "Payment received but activation needs support." }, { status: 500 }); }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, status: "pending", message: "Payment received. Your registration is awaiting platform approval." });
 }

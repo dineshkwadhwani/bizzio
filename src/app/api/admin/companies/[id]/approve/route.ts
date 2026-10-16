@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase/server";
 import { sendPlatformEmail, emailTemplates } from "@/lib/resend";
 import { createProPlanPaymentLink } from "@/lib/razorpay";
+import { activatePaidRegistration } from "@/lib/registration-payment";
 
 // Module 1 §4.5 — SuperAdmin Approval & Activation Flow.
 export async function POST(request: Request, { params }: { params: { id: string } }) {
@@ -28,6 +29,23 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const plan = company.subscription_plans;
   const isBasic = plan.offer_price === 0;
+
+  const { data: paidCheckout } = await admin
+    .from("registration_checkouts")
+    .select("id, razorpay_payment_id, status")
+    .eq("company_id", company.id)
+    .eq("status", "paid")
+    .order("created_at", { ascending: false })
+    .maybeSingle();
+
+  if (!isBasic && paidCheckout) {
+    try {
+      await activatePaidRegistration(company.id, paidCheckout.razorpay_payment_id ?? "superadmin-approved", paidCheckout.id);
+    } catch (activationError) {
+      return NextResponse.json({ error: (activationError as Error).message || "Could not activate approved company." }, { status: 500 });
+    }
+    return NextResponse.json({ status: "active" });
+  }
 
   if (isBasic) {
     // ---- Basic: activate immediately, create Auth user, send invite ----

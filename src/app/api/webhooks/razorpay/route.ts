@@ -30,11 +30,14 @@ export async function POST(request: Request) {
     await admin.from("registration_checkouts").update({ status: "paid", razorpay_payment_id: paymentId, payment_verified_at: new Date().toISOString() }).eq("id", checkout.id);
     await admin.from("payments").update({ status: "success", razorpay_payment_id: paymentId }).eq("checkout_id", checkout.id);
     if (checkout.coupon_id) await admin.from("coupon_redemptions").insert({ coupon_id: checkout.coupon_id, checkout_id: checkout.id, company_id: checkout.company_id, contact_email: checkout.contact_email, discount_amount: checkout.discount_amount });
-    try {
-      const { activatePaidRegistration } = await import("@/lib/registration-payment");
-      await activatePaidRegistration(checkout.company_id, paymentId, checkout.id);
-    } catch (error) {
-      return NextResponse.json({ error: (error as Error).message || "Could not activate registration" }, { status: 500 });
+    const { data: registrationCompany } = await admin.from("companies").select("status").eq("id", checkout.company_id).single();
+    if (registrationCompany?.status === "payment_pending") {
+      try {
+        const { activatePaidRegistration } = await import("@/lib/registration-payment");
+        await activatePaidRegistration(checkout.company_id, paymentId, checkout.id);
+      } catch (error) {
+        return NextResponse.json({ error: (error as Error).message || "Could not activate registration" }, { status: 500 });
+      }
     }
     return NextResponse.json({ received: true });
   }

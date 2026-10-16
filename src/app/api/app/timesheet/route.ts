@@ -8,6 +8,7 @@ const EntrySchema = z.object({
   id: z.string().uuid().optional(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   hours: z.coerce.number().positive().max(24),
+  project_id: z.string().uuid().optional().nullable(),
   task: z.string().trim().min(1),
   notes: z.string().optional().nullable()
 });
@@ -77,12 +78,19 @@ export async function GET() {
   const { data: entries } = timesheet?.id
     ? await supabase
       .from("timesheet_entries")
-      .select("*")
+      .select("*, project:projects(id, name, is_internal, customer:customers(id, name))")
       .eq("timesheet_id", timesheet.id)
       .order("entry_date", { ascending: true })
     : { data: [] };
 
-  return NextResponse.json({ timesheet, entries: entries ?? [] });
+  const { data: projects } = await supabase
+    .from("projects")
+    .select("id, name, is_internal, customer_id, start_date, end_date, customer:customers(id, name)")
+    .eq("company_id", employee.company_id)
+    .eq("is_active", true)
+    .order("name");
+
+  return NextResponse.json({ timesheet, entries: entries ?? [], projects: projects ?? [] });
 }
 
 export async function POST(request: Request) {
@@ -134,6 +142,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Future dates are not allowed" }, { status: 400 });
   }
 
+  if (parsed.data.project_id) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", parsed.data.project_id)
+      .eq("company_id", employee.company_id)
+      .eq("is_active", true)
+      .lte("start_date", parsed.data.entry_date)
+      .or(`end_date.is.null,end_date.gte.${parsed.data.entry_date}`)
+      .maybeSingle();
+    if (!project) return NextResponse.json({ error: "Select an active project available on this date." }, { status: 400 });
+  }
+
   const { data: timesheet, error: timesheetError } = await supabase
     .from("timesheets")
     .upsert(
@@ -177,6 +198,7 @@ export async function POST(request: Request) {
       .update({
         entry_date: parsed.data.entry_date,
         hours: parsed.data.hours,
+        project_id: parsed.data.project_id || null,
         task: parsed.data.task,
         notes: finalNotes
       })
@@ -193,6 +215,7 @@ export async function POST(request: Request) {
         timesheet_id: timesheet.id,
         entry_date: parsed.data.entry_date,
         hours: parsed.data.hours,
+        project_id: parsed.data.project_id || null,
         task: parsed.data.task,
         notes: finalNotes
       })
