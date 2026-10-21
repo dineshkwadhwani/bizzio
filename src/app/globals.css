@@ -63,6 +63,16 @@ body {
     height: 86mm !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    /* Preserve the branded background and accent colors in browser print/PDF output. */
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background-color: #ffffff !important;
+  }
+
+  .employee-id-card-printable,
+  .employee-id-card-printable * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   .printable-account-statement,
