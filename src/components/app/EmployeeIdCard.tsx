@@ -21,12 +21,17 @@ export function EmployeeIdCard({ employee, company }: EmployeeIdCardProps) {
   const fontColor = /^#[0-9a-f]{6}$/i.test(company.branding_font_color ?? "") ? company.branding_font_color! : "#ffffff";
 
   function downloadPdf() {
+    const printStyle = document.createElement("style");
+    printStyle.id = "employee-id-card-print-style";
+    printStyle.textContent = "@page { size: 54mm 86mm; margin: 0; }";
+    document.head.appendChild(printStyle);
+    document.documentElement.classList.add("printing-employee-id-card");
     document.body.classList.add("printing-employee-id-card");
-    window.addEventListener(
-      "afterprint",
-      () => document.body.classList.remove("printing-employee-id-card"),
-      { once: true },
-    );
+    window.addEventListener("afterprint", () => {
+      document.documentElement.classList.remove("printing-employee-id-card");
+      document.body.classList.remove("printing-employee-id-card");
+      printStyle.remove();
+    }, { once: true });
     window.print();
   }
 

@@ -61,6 +61,8 @@ export default function AttendancePage() {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [entryType, setEntryType] = useState<"attendance" | "leave">("attendance");
   const [leaveTypeId, setLeaveTypeId] = useState("");
+  const [leaveStartDate, setLeaveStartDate] = useState("");
+  const [leaveEndDate, setLeaveEndDate] = useState("");
   const [workLocation, setWorkLocation] = useState("designated_office");
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
@@ -162,6 +164,8 @@ export default function AttendancePage() {
     const leave = leavesByDate.get(date);
     setEntryType(leave ? "leave" : "attendance");
     setLeaveTypeId(leave?.leave_type_id ?? leaveTypes[0]?.id ?? "");
+    setLeaveStartDate(leave?.start_date ?? date);
+    setLeaveEndDate(leave?.end_date ?? date);
     setWorkLocation(row?.work_location ?? "designated_office");
     setComment(row?.check_in_comment ?? "");
     setError(null);
@@ -188,8 +192,12 @@ export default function AttendancePage() {
   }
 
   async function applyLeave() {
-    if (!selectedDate || !leaveTypeId) {
-      setError("Please select a leave type.");
+    if (!selectedDate || !leaveTypeId || !leaveStartDate || !leaveEndDate) {
+      setError("Please select a leave type and leave dates.");
+      return;
+    }
+    if (leaveEndDate < leaveStartDate) {
+      setError("The leave end date cannot be before the start date.");
       return;
     }
     setLoading(true);
@@ -199,7 +207,7 @@ export default function AttendancePage() {
       const res = await fetch("/api/app/leave/apply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leave_type_id: leaveTypeId, start_date: selectedDate, end_date: selectedDate, is_half_day: false, half_day_session: null, reason: comment.trim() || undefined })
+        body: JSON.stringify({ leave_type_id: leaveTypeId, start_date: leaveStartDate, end_date: leaveEndDate, is_half_day: false, half_day_session: null, reason: comment.trim() || undefined })
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) { setError(typeof json.error === "string" ? json.error : "Could not submit leave request."); return; }
@@ -302,6 +310,16 @@ export default function AttendancePage() {
                     <option value="">Select leave type</option>
                     {leaveTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                   </select>
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label" htmlFor="modal-leave-start-date">Start date</label>
+                      <input id="modal-leave-start-date" type="date" className="input mt-1" value={leaveStartDate} onChange={(event) => setLeaveStartDate(event.target.value)} disabled={loading} required />
+                    </div>
+                    <div>
+                      <label className="label" htmlFor="modal-leave-end-date">End date</label>
+                      <input id="modal-leave-end-date" type="date" className="input mt-1" value={leaveEndDate} min={leaveStartDate || undefined} onChange={(event) => setLeaveEndDate(event.target.value)} disabled={loading} required />
+                    </div>
+                  </div>
                 </>}
                 <label className="label mt-4" htmlFor="modal-comment">Comments {entryType === "attendance" && workLocation === "other_location" && <span className="text-red-600">*</span>}</label>
                 <textarea id="modal-comment" className="input mt-1" required={entryType === "attendance" && workLocation === "other_location"} placeholder={entryType === "attendance" && workLocation === "other_location" ? "Required: describe the other location" : entryType === "leave" ? "Optional reason for leave" : "Optional comment"} value={comment} onChange={(event) => setComment(event.target.value)} disabled={loading} />

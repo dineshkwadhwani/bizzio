@@ -75,6 +75,16 @@ body {
   }
 
   body.printing-employee-id-card {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 54mm !important;
+    height: 86mm !important;
+    min-height: 86mm !important;
+    max-height: 86mm !important;
+    overflow: hidden !important;
+  }
+
+  html.printing-employee-id-card {
     width: 54mm !important;
     height: 86mm !important;
     overflow: hidden !important;
