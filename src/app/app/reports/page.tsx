@@ -154,13 +154,6 @@ export default async function EmployeeReportsPage() {
       </div>
       </>}
 
-      {canFollowUpReports && (
-        <div className="card mt-6">
-          <h2 className="font-semibold text-ink-900">Pipeline Report</h2>
-          <p className="mt-1 text-sm text-ink-500">Review DCR entries by date, lead status and sales executive.</p>
-          <Link href="/app/reports/follow-up" className="btn-primary mt-4 inline-flex">Open Pipeline Report</Link>
-        </div>
-      )}
     </div>
   );
 }

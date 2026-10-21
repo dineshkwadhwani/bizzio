@@ -23,6 +23,10 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
     supabase.from("titles").select("id, name").eq("company_id", employee.company_id).eq("is_active", true).order("name"),
     supabase.from("employees").select("id, name").eq("company_id", employee.company_id).eq("status", "active").order("name")
   ]);
+  const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
+  const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle").eq("id", company.plan_id).maybeSingle() : { data: null };
+  const { data: savedPayrollSettings } = plan?.feature_bundle?.payroll === true ? await supabase.from("company_payroll_settings").select("*").eq("company_id", employee.company_id).maybeSingle() : { data: null };
+  const payrollSettings = plan?.feature_bundle?.payroll === true ? (savedPayrollSettings ?? { basic_enabled: true, hra_enabled: true, bonus_enabled: false, special_allowance_enabled: false, other_allowance_enabled: false, tax_deduction_enabled: false, professional_tax_enabled: false, other_deductions_enabled: false, tds_enabled: false }) : null;
 
   const { data: documents } = await supabase
     .from("employee_documents")
@@ -44,7 +48,7 @@ export default async function EmployeeDetailPage({ params }: { params: { id: str
         </div>
       </div>
 
-      <EditEmployeeDetails employee={employee} departments={departments ?? []} titles={titles ?? []} managers={managers ?? []} />
+      <EditEmployeeDetails employee={employee} payrollSettings={payrollSettings} departments={departments ?? []} titles={titles ?? []} managers={managers ?? []} />
 
       <div className="card">
         <h2 className="font-semibold text-ink-900">Flags</h2>

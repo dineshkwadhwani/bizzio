@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { findPaymentAccount } from "@/lib/finance-ledger";
+import { calculatePayroll, periodLabel, periodMonth } from "@/lib/payroll";
 
 const SalaryPaymentSchema = z.object({
   employee_id: z.string().min(1),
@@ -24,6 +25,9 @@ export async function GET(request: Request) {
   try {
     const guard = await requireFinance("finance_salary");
     const supabase = createClient();
+    const { data: companyPlan } = await supabase.from("companies").select("plan_id").eq("id", guard.employee.company_id).maybeSingle();
+    const { data: plan } = companyPlan?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle").eq("id", companyPlan.plan_id).maybeSingle() : { data: null };
+    if (plan?.feature_bundle?.payroll !== true) return NextResponse.json({ error: "Payroll is available only on the Max Pro package." }, { status: 403 });
     const { searchParams } = new URL(request.url);
     const mode = searchParams.get("mode");
 
@@ -76,6 +80,7 @@ export async function GET(request: Request) {
     }
 
     if (mode === "employees") {
+      const period = periodMonth(searchParams.get("period") || new Date().toISOString().slice(0, 7));
       const { data, error } = await supabase
         .from("employees")
         .select("id, name, email, employee_code, payable_salary, status, salary_payable_account_head_id")
@@ -99,14 +104,17 @@ export async function GET(request: Request) {
       if (accountsError) return NextResponse.json({ error: accountsError.message }, { status: 500 });
 
       const accountById = new Map((accounts ?? []).map((account) => [account.id, account]));
-      return NextResponse.json({
-        employees: (data ?? []).map((employee) => ({
+      const payrollRows = await Promise.all((data ?? []).map(async (employee) => {
+        const calculation = await calculatePayroll(supabase, guard.employee.company_id, employee.id, period);
+        return {
           ...employee,
           salary_account: employee.salary_payable_account_head_id
             ? accountById.get(employee.salary_payable_account_head_id) ?? null
-            : null
-        }))
-      });
+            : null,
+          payroll: calculation
+        };
+      }));
+      return NextResponse.json({ period, period_label: periodLabel(period), employees: payrollRows });
     }
 
     if (mode === "payments") {
@@ -152,6 +160,9 @@ export async function POST(request: Request) {
 
     const supabase = createClient();
     const companyId = guard.employee.company_id;
+    const { data: companyPlan } = await supabase.from("companies").select("plan_id").eq("id", companyId).maybeSingle();
+    const { data: plan } = companyPlan?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle").eq("id", companyPlan.plan_id).maybeSingle() : { data: null };
+    if (plan?.feature_bundle?.payroll !== true) return NextResponse.json({ error: "Payroll is available only on the Max Pro package." }, { status: 403 });
 
     const { data: employee, error: employeeError } = await supabase
       .from("employees")
@@ -165,10 +176,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Employee not found in this company." }, { status: 404 });
     }
 
-    const amount = Number(parsed.data.amount ?? employee.payable_salary ?? 0);
+    const calculation = await calculatePayroll(supabase, companyId, employee.id, parsed.data.paid_for_period);
+    const amount = Number(parsed.data.amount ?? calculation?.calculatedAmount ?? employee.payable_salary ?? 0);
+    const tdsAmount = Number(calculation?.tdsAmount ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: "Salary amount must be greater than zero." }, { status: 400 });
     }
+    const { data: tdsHead } = tdsAmount > 0
+      ? await supabase.from("account_heads").select("id").eq("company_id", companyId).eq("name", "TDS Payable").eq("type", "liability").eq("is_active", true).maybeSingle()
+      : { data: null };
+    if (tdsAmount > 0 && !tdsHead) return NextResponse.json({ error: "TDS Payable account head is missing. Run the payroll migration." }, { status: 400 });
 
     const { data: existingPayment } = await supabase
       .from("salary_payments")
@@ -224,6 +241,11 @@ export async function POST(request: Request) {
       p_payload: {
         employee_id: employee.id,
         amount,
+        gross_salary: calculation?.calculatedGross ?? amount + tdsAmount,
+        paid_days: calculation?.paidDays ?? 0,
+        calendar_days: calculation?.calendarDays ?? 0,
+        tds_amount: tdsAmount,
+        salary_breakdown: calculation?.breakdown ?? {},
         paid_for_period: parsed.data.paid_for_period,
         paid_at: `${parsed.data.payment_date}T00:00:00.000Z`,
         accrual_journal_id: accrualJournalId,
@@ -231,8 +253,9 @@ export async function POST(request: Request) {
       },
       p_postings: [
         { journal_id: accrualJournalId, payment_mode: null, source_type: "salary_paid", source_id: employee.id, lines: [
-          { account_head_id: salariesHead.id, amount, entry_type: "debit", label: "Salary expense" },
-          { account_head_id: employee.salary_payable_account_head_id, amount, entry_type: "credit", label: "Salary payable — employee" }
+          { account_head_id: salariesHead.id, amount: amount + tdsAmount, entry_type: "debit", label: "Salary expense" },
+          { account_head_id: employee.salary_payable_account_head_id, amount, entry_type: "credit", label: "Salary payable — employee" },
+          ...(tdsHead ? [{ account_head_id: tdsHead.id, amount: tdsAmount, entry_type: "credit", label: "TDS Payable" }] : [])
         ]},
         { journal_id: paymentJournalId, source_type: "salary_paid", source_id: employee.id, lines: [
           { account_head_id: employee.salary_payable_account_head_id, amount, entry_type: "debit", label: "Salary payable — employee" },
@@ -243,6 +266,14 @@ export async function POST(request: Request) {
       p_attachment_name: parsed.data.attachment_name?.trim() || null
     });
     if (atomicError || !atomicResult?.ok) return NextResponse.json({ error: atomicError?.message ?? "Could not post salary payment." }, { status: 500 });
+
+    await supabase.from("salary_payments").update({
+      gross_salary: calculation?.calculatedGross ?? amount + tdsAmount,
+      paid_days: calculation?.paidDays ?? 0,
+      calendar_days: calculation?.calendarDays ?? 0,
+      tds_amount: tdsAmount,
+      salary_breakdown: calculation?.breakdown ?? {}
+    }).eq("company_id", companyId).eq("transaction_event_id", atomicResult.transaction_event_id);
 
     const [{ data: salaryPayment }, { data: ledgerEntries }] = await Promise.all([
       supabase.from("salary_payments").select("*").eq("company_id", companyId).eq("transaction_event_id", atomicResult.transaction_event_id).single(),

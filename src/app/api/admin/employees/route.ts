@@ -32,7 +32,10 @@ const EmployeeSchema = z.object({
   bank_account_no: z.string().optional(),
   bank_ifsc: z.string().optional(),
   bank_name: z.string().optional(),
-  payable_salary: z.number().optional().nullable()
+  payable_salary: z.number().optional().nullable(),
+  salary_basic: z.number().nonnegative().optional(), salary_hra: z.number().nonnegative().optional(), salary_bonus: z.number().nonnegative().optional(),
+  salary_special_allowance: z.number().nonnegative().optional(), salary_other_allowance: z.number().nonnegative().optional(),
+  salary_tax_deduction: z.number().nonnegative().optional(), salary_professional_tax: z.number().nonnegative().optional(), salary_other_deductions: z.number().nonnegative().optional(), salary_tds: z.number().nonnegative().optional()
 });
 
 // Module 2 §4 — Add Employee. Schema §13 open item resolved: Auth user +
@@ -59,6 +62,15 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient();
   const companyId = guard.profile.company_id;
+
+  const { data: companyPlan } = await admin.from("companies").select("plan_id").eq("id", companyId).maybeSingle();
+  const { data: plan } = companyPlan?.plan_id ? await admin.from("subscription_plans").select("feature_bundle").eq("id", companyPlan.plan_id).maybeSingle() : { data: null };
+  const { data: payrollSettings } = plan?.feature_bundle?.payroll === true ? await admin.from("company_payroll_settings").select("*").eq("company_id", companyId).maybeSingle() : { data: null };
+  if (payrollSettings) {
+    const earnings = (payrollSettings.basic_enabled ? Number(data.salary_basic ?? 0) : 0) + (payrollSettings.hra_enabled ? Number(data.salary_hra ?? 0) : 0) + (payrollSettings.bonus_enabled ? Number(data.salary_bonus ?? 0) : 0) + (payrollSettings.special_allowance_enabled ? Number(data.salary_special_allowance ?? 0) : 0) + (payrollSettings.other_allowance_enabled ? Number(data.salary_other_allowance ?? 0) : 0);
+    const deductions = (payrollSettings.tax_deduction_enabled ? Number(data.salary_tax_deduction ?? 0) : 0) + (payrollSettings.professional_tax_enabled ? Number(data.salary_professional_tax ?? 0) : 0) + (payrollSettings.other_deductions_enabled ? Number(data.salary_other_deductions ?? 0) : 0) + (payrollSettings.tds_enabled ? Number(data.salary_tds ?? 0) : 0);
+    data.payable_salary = Math.max(0, earnings - deductions);
+  }
 
   const { data: company } = await admin.from("companies").select("name, resend_enabled, resend_api_key_encrypted, resend_from_name, resend_from_email, resend_reply_to, resend_domain_verified").eq("id", companyId).single();
   if (!company) return NextResponse.json({ error: "Company not found" }, { status: 404 });

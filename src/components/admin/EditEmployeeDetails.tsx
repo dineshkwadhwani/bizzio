@@ -4,8 +4,9 @@ import { useState } from "react";
 
 type Option = { id: string; name: string };
 
-export function EditEmployeeDetails({ employee, departments, titles, managers }: {
-  employee: { id: string; phone: string | null; date_of_joining: string | null; employee_type: string | null; department_id: string | null; title_id: string | null; reporting_manager_id: string | null; status: string; hierarchy_role?: string | null; is_manager: boolean; is_director: boolean; is_finance: boolean; finance_scope: string | null; is_hr: boolean; is_software_engineer: boolean; is_sales: boolean; is_operations?: boolean; is_support?: boolean };
+export function EditEmployeeDetails({ employee, payrollSettings, departments, titles, managers }: {
+  employee: { id: string; phone: string | null; date_of_joining: string | null; employee_type: string | null; department_id: string | null; title_id: string | null; reporting_manager_id: string | null; status: string; hierarchy_role?: string | null; is_manager: boolean; is_director: boolean; is_finance: boolean; finance_scope: string | null; is_hr: boolean; is_software_engineer: boolean; is_sales: boolean; is_operations?: boolean; is_support?: boolean; salary_basic?: number; salary_hra?: number; salary_bonus?: number; salary_special_allowance?: number; salary_other_allowance?: number; salary_tax_deduction?: number; salary_professional_tax?: number; salary_other_deductions?: number; salary_tds?: number };
+  payrollSettings: Record<string, boolean> | null;
   departments: Option[];
   titles: Option[];
   managers: Option[];
@@ -26,6 +27,7 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
     ,is_sales: employee.is_sales
     ,is_operations: employee.is_operations ?? false
     ,is_support: employee.is_support ?? false
+    ,salary_basic: String(employee.salary_basic ?? 0), salary_hra: String(employee.salary_hra ?? 0), salary_bonus: String(employee.salary_bonus ?? 0), salary_special_allowance: String(employee.salary_special_allowance ?? 0), salary_other_allowance: String(employee.salary_other_allowance ?? 0), salary_tax_deduction: String(employee.salary_tax_deduction ?? 0), salary_professional_tax: String(employee.salary_professional_tax ?? 0), salary_other_deductions: String(employee.salary_other_deductions ?? 0), salary_tds: String(employee.salary_tds ?? 0)
   });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -55,6 +57,15 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
         ,is_sales: form.is_sales
         ,is_operations: form.is_operations
         ,is_support: form.is_support
+        ,salary_basic: Number(form.salary_basic || 0)
+        ,salary_hra: Number(form.salary_hra || 0)
+        ,salary_bonus: Number(form.salary_bonus || 0)
+        ,salary_special_allowance: Number(form.salary_special_allowance || 0)
+        ,salary_other_allowance: Number(form.salary_other_allowance || 0)
+        ,salary_tax_deduction: Number(form.salary_tax_deduction || 0)
+        ,salary_professional_tax: Number(form.salary_professional_tax || 0)
+        ,salary_other_deductions: Number(form.salary_other_deductions || 0)
+        ,salary_tds: Number(form.salary_tds || 0)
       })
     });
     const result = await response.json();
@@ -133,6 +144,7 @@ export function EditEmployeeDetails({ employee, departments, titles, managers }:
           <option value="left">Left</option>
         </select>
       </div>
+      {payrollSettings && <div className="rounded-xl border border-brand-100 bg-brand-50/30 p-4"><h2 className="font-semibold text-ink-900">Payroll Salary</h2><p className="mt-1 text-xs text-ink-500">Edit monthly amounts for the enabled salary components.</p><div className="mt-4 grid gap-4 sm:grid-cols-2">{(["basic_enabled", "hra_enabled", "bonus_enabled", "special_allowance_enabled", "other_allowance_enabled", "tax_deduction_enabled", "professional_tax_enabled", "other_deductions_enabled", "tds_enabled"] as const).filter((key) => payrollSettings[key]).map((key) => { const field = key.replace("_enabled", "") as keyof typeof form; const labels: Record<string, string> = { basic: "Basic", hra: "HRA", bonus: "Bonus", special_allowance: "Special Allowance", other_allowance: "Other Allowance", tax_deduction: "Tax Deduction", professional_tax: "Professional Tax", other_deductions: "Other Deductions", tds: "TDS" }; return <label key={key}><span className="label">{labels[String(field)]}</span><input className="input" type="number" min="0" step="0.01" value={form[field] as string} onChange={(event) => setForm({ ...form, [field]: event.target.value })} /></label>; })}</div></div>}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {message && <p className="text-sm text-green-600">{message}</p>}
       <button type="submit" disabled={saving} className="btn-primary">{saving ? "Saving…" : "Save Employee Details"}</button>

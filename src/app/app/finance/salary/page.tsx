@@ -16,6 +16,7 @@ type EmployeeRow = {
     type: string;
     is_active: boolean;
   } | null;
+  payroll?: { calculatedAmount: number; calculatedGross: number; paidDays: number; calendarDays: number; tdsAmount: number; netMonthlySalary: number } | null;
 };
 
 type SalaryPayment = {
@@ -56,20 +57,8 @@ function localDate() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 10);
 }
 
-const PERIOD_OPTIONS = [
-  "Jan 2026",
-  "Feb 2026",
-  "Mar 2026",
-  "Apr 2026",
-  "May 2026",
-  "Jun 2026",
-  "Jul 2026",
-  "Aug 2026",
-  "Sep 2026",
-  "Oct 2026",
-  "Nov 2026",
-  "Dec 2026"
-];
+function periodOptions() { const now = new Date(); return Array.from({ length: 12 }, (_, index) => { const date = new Date(now.getFullYear(), now.getMonth() - index, 1); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }); }
+function periodLabel(period: string) { return new Date(`${period}-01T00:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" }); }
 
 export default function SalaryPage() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
@@ -80,7 +69,7 @@ export default function SalaryPage() {
   const [accountError, setAccountError] = useState<string | null>(null);
   const [paymentsByEmployee, setPaymentsByEmployee] = useState<Record<string, string[]>>({});
   const [activeEmployeeId, setActiveEmployeeId] = useState<string | null>(null);
-  const [period, setPeriod] = useState<string>("Aug 2026");
+  const [period, setPeriod] = useState<string>(() => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; });
   const [paymentDate, setPaymentDate] = useState(localDate);
   const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState<"cash" | "cheque" | "bank_transfer">("bank_transfer");
@@ -93,7 +82,7 @@ export default function SalaryPage() {
   useEffect(() => {
     async function load() {
       const [employeesRes, paymentsRes] = await Promise.all([
-        fetch("/api/app/finance/salary?mode=employees"),
+        fetch(`/api/app/finance/salary?mode=employees&period=${encodeURIComponent(period)}`),
         fetch("/api/app/finance/salary?mode=payments")
       ]);
 
@@ -115,15 +104,14 @@ export default function SalaryPage() {
     }
 
     load();
-  }, []);
+  }, [period]);
 
   async function paySalary(employee: EmployeeRow) {
     setError(null);
     setNotice(null);
     setActiveEmployeeId(employee.id);
-    setPaymentAmount(String(employee.payable_salary ?? ""));
+    setPaymentAmount(String(employee.payroll?.calculatedAmount ?? employee.payable_salary ?? ""));
     setPaymentDate(localDate());
-    setPeriod((prev) => prev || "Aug 2026");
   }
 
   async function viewEmployeeAccount(employee: EmployeeRow) {
@@ -259,7 +247,8 @@ export default function SalaryPage() {
                   >
                     <p className="font-medium text-ink-800">{staff.employee_code} · {staff.name}</p>
                     <p className="text-ink-400">{staff.email}</p>
-                    <p className="mt-1 text-xs text-ink-500">Payable salary: ₹{Number(staff.payable_salary || 0).toFixed(2)}</p>
+                    <p className="mt-1 text-xs text-ink-500">Monthly salary: ₹{Number(staff.payroll?.netMonthlySalary ?? staff.payable_salary ?? 0).toFixed(2)} · Payable for {staff.payroll?.paidDays ?? 0}/{staff.payroll?.calendarDays ?? 0} days: ₹{Number(staff.payroll?.calculatedAmount ?? staff.payable_salary ?? 0).toFixed(2)}</p>
+                    {staff.payroll && staff.payroll.tdsAmount > 0 && <p className="text-xs text-ink-500">TDS: ₹{staff.payroll.tdsAmount.toFixed(2)}</p>}
                     {periods.length > 0 && (
                       <p className="mt-1 text-xs text-ink-500">Paid for: {periods.join(", ")}</p>
                     )}
@@ -275,8 +264,8 @@ export default function SalaryPage() {
                       <div>
                         <label className="label">Period</label>
                         <select className="input" value={period} onChange={(e) => setPeriod(e.target.value)}>
-                          {PERIOD_OPTIONS.map((option) => (
-                            <option key={option} value={option}>{option}</option>
+                          {periodOptions().map((option) => (
+                            <option key={option} value={option}>{periodLabel(option)}</option>
                           ))}
                         </select>
                       </div>

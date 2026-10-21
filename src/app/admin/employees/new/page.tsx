@@ -12,6 +12,7 @@ export default function NewEmployeePage() {
   const [departments, setDepartments] = useState<Option[]>([]);
   const [titles, setTitles] = useState<Option[]>([]);
   const [managers, setManagers] = useState<Option[]>([]);
+  const [payrollSettings, setPayrollSettings] = useState<Record<string, boolean> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -20,7 +21,7 @@ export default function NewEmployeePage() {
     department_id: "", title_id: "", reporting_manager_id: "", is_root: false,
     hierarchy_role: "employee", is_finance: false, finance_scope: "department",
     is_hr: false, is_software_engineer: false, is_sales: false, is_operations: false, is_support: false, emergency_contact_name: "", emergency_contact_phone: "",
-    bank_account_no: "", bank_ifsc: "", bank_name: "", payable_salary: ""
+    bank_account_no: "", bank_ifsc: "", bank_name: "", payable_salary: "", salary_basic: "", salary_hra: "", salary_bonus: "", salary_special_allowance: "", salary_other_allowance: "", salary_tax_deduction: "", salary_professional_tax: "", salary_other_deductions: "", salary_tds: ""
   });
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function NewEmployeePage() {
     supabase.from("departments").select("id, name").eq("is_active", true).then(({ data }) => setDepartments(data ?? []));
     supabase.from("titles").select("id, name").eq("is_active", true).then(({ data }) => setTitles(data ?? []));
     supabase.from("employees").select("id, name").eq("status", "active").then(({ data }) => setManagers(data ?? []));
+    fetch("/api/admin/payroll/config").then(async (response) => { if (response.ok) { const json = await response.json(); setPayrollSettings(json.settings); } });
   }, []);
 
   function update(key: keyof typeof form, value: string | boolean) {
@@ -49,7 +51,8 @@ export default function NewEmployeePage() {
         title_id: form.title_id || null,
         reporting_manager_id: form.is_root ? null : form.reporting_manager_id || null,
         payable_salary: form.payable_salary ? Number(form.payable_salary) : null,
-        finance_scope: form.is_finance ? form.finance_scope : null
+        finance_scope: form.is_finance ? form.finance_scope : null,
+        ...Object.fromEntries(["salary_basic", "salary_hra", "salary_bonus", "salary_special_allowance", "salary_other_allowance", "salary_tax_deduction", "salary_professional_tax", "salary_other_deductions", "salary_tds"].map((key) => [key, Number(form[key as keyof typeof form] || 0)]))
       })
     });
     const json = await res.json();
@@ -176,6 +179,8 @@ export default function NewEmployeePage() {
             <input className="input" placeholder="Payable salary (for Pay Salary action)" type="number" value={form.payable_salary} onChange={(e) => update("payable_salary", e.target.value)} />
           </div>
         </details>
+
+        {payrollSettings && <div className="rounded-xl border border-brand-100 bg-brand-50/30 p-4"><h2 className="font-semibold text-ink-900">Payroll Salary</h2><p className="mt-1 text-xs text-ink-500">Enter monthly amounts for the enabled salary components.</p><div className="mt-4 grid gap-4 sm:grid-cols-2">{(["basic_enabled", "hra_enabled", "bonus_enabled", "special_allowance_enabled", "other_allowance_enabled", "tax_deduction_enabled", "professional_tax_enabled", "other_deductions_enabled", "tds_enabled"] as const).filter((key) => payrollSettings[key]).map((key) => { const field = key.replace("_enabled", ""); const labels: Record<string, string> = { basic: "Basic", hra: "HRA", bonus: "Bonus", special_allowance: "Special Allowance", other_allowance: "Other Allowance", tax_deduction: "Tax Deduction", professional_tax: "Professional Tax", other_deductions: "Other Deductions", tds: "TDS" }; return <label key={key}><span className="label">{labels[field] || field}</span><input className="input" type="number" min="0" step="0.01" value={form[field as keyof typeof form] as string} onChange={(event) => update(field as keyof typeof form, event.target.value)} /></label>; })}</div></div>}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

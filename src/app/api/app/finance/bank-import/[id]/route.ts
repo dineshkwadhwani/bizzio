@@ -2,23 +2,30 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireFinance } from "@/lib/auth-guard";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { findPaymentAccount } from "@/lib/finance-ledger";
+import {
+  findPaymentAccount,
+  recordSalaryPaymentFromLedger,
+} from "@/lib/finance-ledger";
 
-const BulkAssignSchema = z.object({
-  row_ids: z.array(z.string()).min(1),
-  account_head_id: z.string().min(1).optional(),
-  notes: z.string().optional().nullable()
-}).refine((value) => value.account_head_id || value.notes !== undefined, { message: "An account or notes value is required." });
+const BulkAssignSchema = z
+  .object({
+    row_ids: z.array(z.string()).min(1),
+    account_head_id: z.string().min(1).optional(),
+    notes: z.string().optional().nullable(),
+  })
+  .refine((value) => value.account_head_id || value.notes !== undefined, {
+    message: "An account or notes value is required.",
+  });
 
 const PostRowsSchema = z.object({
   row_ids: z.array(z.string()).min(1),
   force: z.boolean().optional().default(false),
-  account_head_ids: z.record(z.string()).optional()
+  account_head_ids: z.record(z.string()).optional(),
 });
 
 const IgnoreRowsSchema = z.object({
   row_ids: z.array(z.string()).min(1),
-  notes: z.string().optional().or(z.literal(""))
+  notes: z.string().optional().or(z.literal("")),
 });
 
 const ReconcileRowsSchema = z.object({ row_ids: z.array(z.string()).min(1) });
@@ -35,7 +42,10 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       .single();
 
     if (importError || !importRecord) {
-      return NextResponse.json({ error: "Import batch not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Import batch not found." },
+        { status: 404 },
+      );
     }
 
     const { data: rows, error: rowsError } = await supabase
@@ -46,17 +56,28 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       .order("row_date", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false });
 
-    if (rowsError) return NextResponse.json({ error: rowsError.message }, { status: 500 });
+    if (rowsError)
+      return NextResponse.json({ error: rowsError.message }, { status: 500 });
     const attachmentUrl = importRecord.attachment_path
-      ? (await supabase.storage.from("transaction-documents").createSignedUrl(importRecord.attachment_path, 3600)).data?.signedUrl ?? null
+      ? ((
+          await supabase.storage
+            .from("transaction-documents")
+            .createSignedUrl(importRecord.attachment_path, 3600)
+        ).data?.signedUrl ?? null)
       : null;
-    return NextResponse.json({ importRecord: { ...importRecord, attachment_url: attachmentUrl }, rows: rows ?? [] });
+    return NextResponse.json({
+      importRecord: { ...importRecord, attachment_url: attachmentUrl },
+      rows: rows ?? [],
+    });
   } catch (error) {
     return error as Response;
   }
 }
 
-export async function DELETE(_: Request, { params }: { params: { id: string } }) {
+export async function DELETE(
+  _: Request,
+  { params }: { params: { id: string } },
+) {
   try {
     const guard = await requireFinance("finance_bank_import");
     const supabase = createClient();
@@ -66,28 +87,52 @@ export async function DELETE(_: Request, { params }: { params: { id: string } })
       .eq("import_id", params.id)
       .eq("company_id", guard.employee.company_id)
       .in("status", ["posted", "reconciled"]);
-    if (rowsError) return NextResponse.json({ error: rowsError.message }, { status: 500 });
-    if (rows?.length) return NextResponse.json({ error: "This batch cannot be deleted because it contains posted or reconciled transactions." }, { status: 409 });
-    const { error } = await supabase.from("bank_statement_imports").delete().eq("id", params.id).eq("company_id", guard.employee.company_id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (rowsError)
+      return NextResponse.json({ error: rowsError.message }, { status: 500 });
+    if (rows?.length)
+      return NextResponse.json(
+        {
+          error:
+            "This batch cannot be deleted because it contains posted or reconciled transactions.",
+        },
+        { status: 409 },
+      );
+    const { error } = await supabase
+      .from("bank_statement_imports")
+      .delete()
+      .eq("id", params.id)
+      .eq("company_id", guard.employee.company_id);
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
-  } catch (error) { return error as Response; }
+  } catch (error) {
+    return error as Response;
+  }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   try {
     const guard = await requireFinance("finance_bank_import");
     const body = await request.json();
     const parsed = BulkAssignSchema.safeParse(body);
 
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      return NextResponse.json(
+        { error: parsed.error.flatten() },
+        { status: 400 },
+      );
     }
 
     const supabase = createClient();
-    const update: { assigned_account_head_id?: string; notes?: string | null } = {};
-    if (parsed.data.account_head_id) update.assigned_account_head_id = parsed.data.account_head_id;
-    if (parsed.data.notes !== undefined) update.notes = parsed.data.notes || null;
+    const update: { assigned_account_head_id?: string; notes?: string | null } =
+      {};
+    if (parsed.data.account_head_id)
+      update.assigned_account_head_id = parsed.data.account_head_id;
+    if (parsed.data.notes !== undefined)
+      update.notes = parsed.data.notes || null;
     const { error } = await supabase
       .from("bank_statement_rows")
       .update(update)
@@ -95,14 +140,18 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       .eq("company_id", guard.employee.company_id)
       .eq("import_id", params.id);
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return error as Response;
   }
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(
+  request: Request,
+  { params }: { params: { id: string } },
+) {
   try {
     const guard = await requireFinance("finance_bank_import");
     const body = await request.json();
@@ -110,12 +159,24 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const supabase = createClient();
     if (action === "reconcile") {
       const parsed = ReconcileRowsSchema.safeParse(body);
-      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-      const { data: rows, error: rowsError } = await supabase.from("bank_statement_rows").select("*").eq("company_id", guard.employee.company_id).eq("import_id", params.id).in("id", parsed.data.row_ids);
-      if (rowsError) return NextResponse.json({ error: rowsError.message }, { status: 500 });
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: parsed.error.flatten() },
+          { status: 400 },
+        );
+      const { data: rows, error: rowsError } = await supabase
+        .from("bank_statement_rows")
+        .select("*")
+        .eq("company_id", guard.employee.company_id)
+        .eq("import_id", params.id)
+        .in("id", parsed.data.row_ids);
+      if (rowsError)
+        return NextResponse.json({ error: rowsError.message }, { status: 500 });
       let reconciled = 0;
       for (const row of rows ?? []) {
-        const amount = Number((Number(row.deposit || 0) || Number(row.withdrawal || 0)).toFixed(2));
+        const amount = Number(
+          (Number(row.deposit || 0) || Number(row.withdrawal || 0)).toFixed(2),
+        );
         if (!row.row_date || !amount) continue;
         const { data: payment } = await supabase
           .from("expense_payments")
@@ -124,28 +185,69 @@ export async function POST(request: Request, { params }: { params: { id: string 
           .eq("paid_at", `${row.row_date}T00:00:00+00:00`)
           .limit(20);
         const matchingPayment = (payment ?? []).find((candidate: any) => {
-          const referenceMatches = !candidate.reference_number || !row.ref_no || candidate.reference_number.trim() === row.ref_no.trim();
+          const referenceMatches =
+            !candidate.reference_number ||
+            !row.ref_no ||
+            candidate.reference_number.trim() === row.ref_no.trim();
           return referenceMatches;
         });
         if (matchingPayment) {
-          const { data: claim } = await supabase.from("expense_claims").select("reimbursement_amount").eq("id", matchingPayment.claim_id).single();
+          const { data: claim } = await supabase
+            .from("expense_claims")
+            .select("reimbursement_amount")
+            .eq("id", matchingPayment.claim_id)
+            .single();
           if (claim && Number(claim.reimbursement_amount) === amount) {
-            const firstLedgerId = Array.isArray(matchingPayment.ledger_entry_ids) ? matchingPayment.ledger_entry_ids[0] : null;
-            const { error } = await supabase.from("bank_statement_rows").update({ status: "reconciled", ledger_entry_id: firstLedgerId, matched_expense_claim_id: matchingPayment.claim_id, notes: row.notes || "Reconciled to a paid expense claim." }).eq("id", row.id);
+            const firstLedgerId = Array.isArray(
+              matchingPayment.ledger_entry_ids,
+            )
+              ? matchingPayment.ledger_entry_ids[0]
+              : null;
+            const { error } = await supabase
+              .from("bank_statement_rows")
+              .update({
+                status: "reconciled",
+                ledger_entry_id: firstLedgerId,
+                matched_expense_claim_id: matchingPayment.claim_id,
+                notes: row.notes || "Reconciled to a paid expense claim.",
+              })
+              .eq("id", row.id);
             if (!error) {
-              await supabase.from("expense_payments").update({ bank_statement_row_id: row.id }).eq("claim_id", matchingPayment.claim_id);
+              await supabase
+                .from("expense_payments")
+                .update({ bank_statement_row_id: row.id })
+                .eq("claim_id", matchingPayment.claim_id);
               reconciled += 1;
               continue;
             }
           }
         }
-        let query = supabase.from("ledger_entries").select("id, source_id, reference_number").eq("company_id", guard.employee.company_id).eq("source_type", "expense_claim").eq("entry_type", "debit").eq("entry_date", row.row_date).eq("amount", amount).limit(1);
+        let query = supabase
+          .from("ledger_entries")
+          .select("id, source_id, reference_number")
+          .eq("company_id", guard.employee.company_id)
+          .eq("source_type", "expense_claim")
+          .eq("entry_type", "debit")
+          .eq("entry_date", row.row_date)
+          .eq("amount", amount)
+          .limit(1);
         if (row.ref_no) query = query.eq("reference_number", row.ref_no);
         const { data: entry } = await query.maybeSingle();
         if (!entry?.source_id) continue;
-        const { error } = await supabase.from("bank_statement_rows").update({ status: "reconciled", ledger_entry_id: entry.id, matched_expense_claim_id: entry.source_id, notes: row.notes || "Reconciled to a paid expense claim." }).eq("id", row.id);
+        const { error } = await supabase
+          .from("bank_statement_rows")
+          .update({
+            status: "reconciled",
+            ledger_entry_id: entry.id,
+            matched_expense_claim_id: entry.source_id,
+            notes: row.notes || "Reconciled to a paid expense claim.",
+          })
+          .eq("id", row.id);
         if (!error) {
-          await supabase.from("expense_payments").update({ bank_statement_row_id: row.id }).eq("claim_id", entry.source_id);
+          await supabase
+            .from("expense_payments")
+            .update({ bank_statement_row_id: row.id })
+            .eq("claim_id", entry.source_id);
           reconciled += 1;
         }
       }
@@ -154,7 +256,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (action === "post") {
       const parsed = PostRowsSchema.safeParse(body);
-      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: parsed.error.flatten() },
+          { status: 400 },
+        );
 
       const writeClient = createAdminClient();
       const { data: rows, error: rowsError } = await writeClient
@@ -164,13 +270,25 @@ export async function POST(request: Request, { params }: { params: { id: string 
         .eq("import_id", params.id)
         .in("id", parsed.data.row_ids);
 
-      if (rowsError) return NextResponse.json({ error: rowsError.message }, { status: 500 });
+      if (rowsError)
+        return NextResponse.json({ error: rowsError.message }, { status: 500 });
 
       const posted: any[] = [];
       const skipped: Array<{ rowId: string; reason: string }> = [];
-      const { data: bankAccount, error: bankAccountError } = await findPaymentAccount(writeClient, guard.employee.company_id, "bank_transfer");
+      const { data: bankAccount, error: bankAccountError } =
+        await findPaymentAccount(
+          writeClient,
+          guard.employee.company_id,
+          "bank_transfer",
+        );
       if (bankAccountError || !bankAccount) {
-        return NextResponse.json({ error: "Bank Account asset is missing. Create or activate the Bank Account account head before posting imports." }, { status: 400 });
+        return NextResponse.json(
+          {
+            error:
+              "Bank Account asset is missing. Create or activate the Bank Account account head before posting imports.",
+          },
+          { status: 400 },
+        );
       }
       const { data: salariesHead } = await writeClient
         .from("account_heads")
@@ -181,7 +299,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
         .eq("is_active", true)
         .maybeSingle();
       for (const row of rows ?? []) {
-        if (row.status === "posted" || row.status === "reconciled" || row.status === "ignored") {
+        if (
+          row.status === "posted" ||
+          row.status === "reconciled" ||
+          row.status === "ignored"
+        ) {
           skipped.push({ rowId: row.id, reason: `${row.status}_row` });
           continue;
         }
@@ -190,13 +312,17 @@ export async function POST(request: Request, { params }: { params: { id: string 
           continue;
         }
 
-        const accountHeadId = parsed.data.account_head_ids?.[row.id] || row.assigned_account_head_id;
+        const accountHeadId =
+          parsed.data.account_head_ids?.[row.id] ||
+          row.assigned_account_head_id;
         if (!accountHeadId) {
           skipped.push({ rowId: row.id, reason: "missing_category" });
           continue;
         }
 
-        const amount = Number((Number(row.deposit || 0) || Number(row.withdrawal || 0)).toFixed(2));
+        const amount = Number(
+          (Number(row.deposit || 0) || Number(row.withdrawal || 0)).toFixed(2),
+        );
         if (!amount) {
           skipped.push({ rowId: row.id, reason: "missing_amount" });
           continue;
@@ -205,7 +331,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         const isExpense = Number(row.withdrawal || 0) > 0;
         const { data: accountHead, error: accountError } = await writeClient
           .from("account_heads")
-          .select("id, type, name, is_party_account, party_type")
+          .select("id, type, name, is_party_account, party_type, party_id")
           .eq("id", accountHeadId)
           .eq("company_id", guard.employee.company_id)
           .single();
@@ -215,7 +341,10 @@ export async function POST(request: Request, { params }: { params: { id: string 
           continue;
         }
 
-        const isEmployeeSalaryAccount = isExpense && accountHead.is_party_account && accountHead.party_type === "employee";
+        const isEmployeeSalaryAccount =
+          isExpense &&
+          accountHead.is_party_account &&
+          accountHead.party_type === "employee";
         if (isEmployeeSalaryAccount && !salariesHead) {
           skipped.push({ rowId: row.id, reason: "missing_salaries_account" });
           continue;
@@ -223,39 +352,140 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
         const lines = isEmployeeSalaryAccount
           ? [
-              { accountHeadId: salariesHead!.id, amount, entryType: "debit" as const, label: "Salary expense" },
-              { accountHeadId, amount, entryType: "credit" as const, label: "Salary payable — accrual" },
-              { accountHeadId, amount, entryType: "debit" as const, label: "Salary payable — settlement" },
-              { accountHeadId: bankAccount.id, amount, entryType: "credit" as const, label: "Bank" }
+              {
+                accountHeadId: salariesHead!.id,
+                amount,
+                entryType: "debit" as const,
+                label: "Salary expense",
+              },
+              {
+                accountHeadId,
+                amount,
+                entryType: "credit" as const,
+                label: "Salary payable — accrual",
+              },
+              {
+                accountHeadId,
+                amount,
+                entryType: "debit" as const,
+                label: "Salary payable — settlement",
+              },
+              {
+                accountHeadId: bankAccount.id,
+                amount,
+                entryType: "credit" as const,
+                label: "Bank",
+              },
             ]
           : isExpense
-          ? [
-              { accountHeadId, amount, entryType: "debit" as const, label: "Expense/category" },
-              { accountHeadId: bankAccount.id, amount, entryType: "credit" as const, label: "Bank" }
-            ]
-          : [
-              { accountHeadId: bankAccount.id, amount, entryType: "debit" as const, label: "Bank" },
-              { accountHeadId, amount, entryType: "credit" as const, label: "Income/category" }
-            ];
-        const { data: atomicResult, error: atomicError } = await supabase.rpc("post_atomic_finance_operation", {
-          p_operation: "bank_import_row",
-          p_company_id: guard.employee.company_id,
-          p_actor_employee_id: guard.employee.id,
-          p_event_type: "bank_import_row",
-          p_event_date: row.row_date || new Date().toISOString().slice(0, 10),
-          p_description: [row.particulars, row.notes].filter(Boolean).join(" — ") || `Bank statement import row ${row.id}`,
-          p_reference_number: row.ref_no || null,
-          p_payment_mode: "bank_transfer",
-          p_source_id: row.id,
-          p_payload: { account_head_id: accountHeadId, notes: row.notes || (isExpense ? "Posted as expense from bank import." : "Posted as income from bank import.") },
-          p_postings: [{ source_type: "bank_import_row", source_id: row.id, lines: lines.map((line) => ({ account_head_id: line.accountHeadId, amount: line.amount, entry_type: line.entryType, label: line.label })) }],
-        });
+            ? [
+                {
+                  accountHeadId,
+                  amount,
+                  entryType: "debit" as const,
+                  label: "Expense/category",
+                },
+                {
+                  accountHeadId: bankAccount.id,
+                  amount,
+                  entryType: "credit" as const,
+                  label: "Bank",
+                },
+              ]
+            : [
+                {
+                  accountHeadId: bankAccount.id,
+                  amount,
+                  entryType: "debit" as const,
+                  label: "Bank",
+                },
+                {
+                  accountHeadId,
+                  amount,
+                  entryType: "credit" as const,
+                  label: "Income/category",
+                },
+              ];
+        const { data: atomicResult, error: atomicError } = await supabase.rpc(
+          "post_atomic_finance_operation",
+          {
+            p_operation: "bank_import_row",
+            p_company_id: guard.employee.company_id,
+            p_actor_employee_id: guard.employee.id,
+            p_event_type: "bank_import_row",
+            p_event_date: row.row_date || new Date().toISOString().slice(0, 10),
+            p_description:
+              [row.particulars, row.notes].filter(Boolean).join(" — ") ||
+              `Bank statement import row ${row.id}`,
+            p_reference_number: row.ref_no || null,
+            p_payment_mode: "bank_transfer",
+            p_source_id: row.id,
+            p_payload: {
+              account_head_id: accountHeadId,
+              notes:
+                row.notes ||
+                (isExpense
+                  ? "Posted as expense from bank import."
+                  : "Posted as income from bank import."),
+            },
+            p_postings: [
+              {
+                source_type: "bank_import_row",
+                source_id: row.id,
+                lines: lines.map((line) => ({
+                  account_head_id: line.accountHeadId,
+                  amount: line.amount,
+                  entry_type: line.entryType,
+                  label: line.label,
+                })),
+              },
+            ],
+          },
+        );
 
         if (atomicError || !atomicResult?.ok) {
-          skipped.push({ rowId: row.id, reason: atomicError?.message || "ledger_error" });
+          skipped.push({
+            rowId: row.id,
+            reason: atomicError?.message || "ledger_error",
+          });
           continue;
         }
-        posted.push({ rowId: row.id, journalId: atomicResult.journal_id, ledgerEntryIds: atomicResult.ledger_entry_ids ?? [] });
+        if (isEmployeeSalaryAccount) {
+          const { data: salaryEntry } = await writeClient
+            .from("ledger_entries")
+            .select("id")
+            .eq("company_id", guard.employee.company_id)
+            .eq("journal_id", atomicResult.journal_id)
+            .eq("account_head_id", accountHeadId)
+            .eq("entry_type", "debit")
+            .eq("journal_line", "Salary payable — settlement")
+            .single();
+          const salaryResult = salaryEntry
+            ? await recordSalaryPaymentFromLedger(writeClient, {
+                companyId: guard.employee.company_id,
+                employeeId: accountHead.party_id,
+                ledgerEntryId: salaryEntry.id,
+                journalId: atomicResult.journal_id,
+                amount,
+                paymentMode: "bank_transfer",
+                referenceNumber: row.ref_no,
+                paidForPeriod: (
+                  row.row_date || new Date().toISOString().slice(0, 10)
+                ).slice(0, 7),
+                paidAt: `${row.row_date || new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+                paidBy: guard.employee.id,
+              })
+            : null;
+          if (salaryResult?.error) {
+            skipped.push({ rowId: row.id, reason: salaryResult.error.message });
+            continue;
+          }
+        }
+        posted.push({
+          rowId: row.id,
+          journalId: atomicResult.journal_id,
+          ledgerEntryIds: atomicResult.ledger_entry_ids ?? [],
+        });
       }
 
       return NextResponse.json({ ok: true, posted, skipped });
@@ -263,16 +493,24 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (action === "ignore") {
       const parsed = IgnoreRowsSchema.safeParse(body);
-      if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: parsed.error.flatten() },
+          { status: 400 },
+        );
 
       const { error } = await supabase
         .from("bank_statement_rows")
-        .update({ status: "ignored", notes: parsed.data.notes || "Ignored by finance user." })
+        .update({
+          status: "ignored",
+          notes: parsed.data.notes || "Ignored by finance user.",
+        })
         .in("id", parsed.data.row_ids)
         .eq("company_id", guard.employee.company_id)
         .eq("import_id", params.id);
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error)
+        return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
 

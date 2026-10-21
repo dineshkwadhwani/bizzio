@@ -20,6 +20,15 @@ const UpdateSchema = z.object({
   ,is_sales: z.boolean().optional()
   ,is_operations: z.boolean().optional()
   ,is_support: z.boolean().optional()
+  ,salary_basic: z.number().nonnegative().optional()
+  ,salary_hra: z.number().nonnegative().optional()
+  ,salary_bonus: z.number().nonnegative().optional()
+  ,salary_special_allowance: z.number().nonnegative().optional()
+  ,salary_other_allowance: z.number().nonnegative().optional()
+  ,salary_tax_deduction: z.number().nonnegative().optional()
+  ,salary_professional_tax: z.number().nonnegative().optional()
+  ,salary_other_deductions: z.number().nonnegative().optional()
+  ,salary_tds: z.number().nonnegative().optional()
 });
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {

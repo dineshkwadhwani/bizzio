@@ -36,8 +36,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const { data: companyPlan } = profile?.company_id
     ? await supabase.from("companies").select("subscription_plans(feature_bundle)").eq("id", profile.company_id).maybeSingle()
     : { data: null };
-  const customEmailEnabled = (companyPlan?.subscription_plans as { feature_bundle?: Record<string, boolean> } | null)?.feature_bundle?.custom_email_domain === true;
-  const navItems = customEmailEnabled ? NAV : NAV.filter((item) => item.href !== "/admin/email-settings");
+  const bundle = (companyPlan?.subscription_plans as { feature_bundle?: Record<string, boolean> } | null)?.feature_bundle ?? {};
+  const customEmailEnabled = bundle.custom_email_domain === true;
+  const navItems = [...(bundle.payroll === true ? [{ href: "/admin/payroll", label: "Configure Salary", icon: "Receipt", section: "Configuration" } as NavItem] : []), ...(customEmailEnabled ? NAV : NAV.filter((item) => item.href !== "/admin/email-settings"))];
   const metadata = user?.user_metadata ?? {};
   const initialIdentity: DashboardIdentity | null = user ? {
     name: employee?.name ?? metadata.full_name ?? metadata.name ?? user.email ?? "User",
