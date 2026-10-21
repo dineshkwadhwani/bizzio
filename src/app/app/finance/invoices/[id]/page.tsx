@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { formatDate } from "@/lib/utils";
+import { MailConfigurationStatus } from "@/components/finance/MailConfigurationStatus";
 
 export default function InvoiceDetailPage() {
   const params = useParams();
@@ -328,6 +329,7 @@ export default function InvoiceDetailPage() {
               <button type="button" className="btn-secondary" onClick={() => setReviewOpen(false)}>Close</button>
             </div>
             <div className="max-h-[70vh] overflow-y-auto bg-ink-50 p-4 md:p-8">
+              <MailConfigurationStatus />
               <div className="mx-auto max-w-2xl rounded-xl border border-ink-100 bg-white p-6 shadow-sm md:p-8">
                 {data.company?.logo_url ? <img src={data.company.logo_url} alt={`${data.company.name} logo`} className="mb-6 max-h-16 max-w-[220px]" /> : <p className="mb-6 text-2xl font-bold text-ink-900">{data.company?.name || "Bizzio Online"}</p>}
                 <p className="text-base">Dear {data.invoice.customer?.contact_person || data.invoice.customer?.name || "Customer"},</p>
