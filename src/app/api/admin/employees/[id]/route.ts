@@ -64,14 +64,26 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (!department) return NextResponse.json({ error: "Department must belong to the same company" }, { status: 400 });
   }
   if (data.title_id) {
-    const { data: title } = await admin.from("titles").select("id").eq("id", data.title_id).eq("company_id", employee.company_id).single();
+    const { data: title } = await admin.from("titles").select("id, default_permission_template_id").eq("id", data.title_id).eq("company_id", employee.company_id).single();
     if (!title) return NextResponse.json({ error: "Title must belong to the same company" }, { status: 400 });
+  }
+
+  let titlePermissionTemplateId: string | null | undefined;
+  if (data.title_id) {
+    const { data: title } = await admin
+      .from("titles")
+      .select("default_permission_template_id")
+      .eq("id", data.title_id)
+      .eq("company_id", employee.company_id)
+      .single();
+    titlePermissionTemplateId = title?.default_permission_template_id ?? null;
   }
 
   const { data: updated, error } = await admin
     .from("employees")
     .update({
       ...data,
+      ...(data.title_id ? { permission_template_id: titlePermissionTemplateId } : {}),
       ...(data.employee_type ? { employee_code: employeeCode } : {}),
       ...(hierarchy_role ? {
         is_manager: hierarchy_role === "manager" || hierarchy_role === "director",

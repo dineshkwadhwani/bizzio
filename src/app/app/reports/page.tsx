@@ -33,7 +33,7 @@ export default async function EmployeeReportsPage() {
 
   const { data: employee } = await supabase
     .from("employees")
-    .select("id, company_id, hierarchy_role, is_manager, is_director, permission_overrides, permission_templates(toggles)")
+    .select("id, company_id, hierarchy_role, is_manager, is_director, permission_overrides, permission_templates(toggles), titles(default_permission_template_id)")
     .eq("user_id", user.id)
     .single();
 
@@ -44,7 +44,13 @@ export default async function EmployeeReportsPage() {
   const template = Array.isArray((employee as any).permission_templates)
     ? (employee as any).permission_templates[0]
     : (employee as any).permission_templates;
-  if (!hasPermission(effectiveToggles(template?.toggles, employee.permission_overrides), "view_hierarchy_reports")) {
+  const title = Array.isArray((employee as any).titles) ? (employee as any).titles[0] : (employee as any).titles;
+  const { data: titleTemplate } = title?.default_permission_template_id
+    ? await supabase.from("permission_templates").select("toggles").eq("id", title.default_permission_template_id).maybeSingle()
+    : { data: null };
+  const toggles = effectiveToggles(titleTemplate?.toggles ?? template?.toggles, employee.permission_overrides);
+  const canFollowUpReports = hasPermission(toggles, "view_follow_up_reports") || hasPermission(toggles, "view_dcr_reports");
+  if (!hasPermission(toggles, "view_hierarchy_reports") && !canFollowUpReports) {
     return <div className="card p-6 text-sm text-ink-500">You do not have permission to view this report.</div>;
   }
 
@@ -135,6 +141,14 @@ export default async function EmployeeReportsPage() {
           </div>
         </div>
       </div>
+
+      {canFollowUpReports && (
+        <div className="card mt-6">
+          <h2 className="font-semibold text-ink-900">Follow-up Report</h2>
+          <p className="mt-1 text-sm text-ink-500">Review DCR entries by date, lead status and sales executive.</p>
+          <a href="/app/reports/follow-up" className="btn-primary mt-4 inline-flex">Open Follow-up Report</a>
+        </div>
+      )}
     </div>
   );
 }

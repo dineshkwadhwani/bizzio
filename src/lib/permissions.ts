@@ -57,7 +57,8 @@ export const PERMISSION_GROUPS = [
       ["view_finance_invoice_report", "Invoice report"],
       ["view_hierarchy_reports", "Hierarchy reports"],
       ["view_timesheet_reports", "Timesheet reports"],
-      ["view_dcr_reports", "DCR reports"]
+      ["view_dcr_reports", "DCR reports"],
+      ["view_follow_up_reports", "Follow-up reports"]
     ]
   },
   {

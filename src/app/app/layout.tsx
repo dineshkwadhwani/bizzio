@@ -16,7 +16,7 @@ export default async function EmployeeAppLayout({ children }: { children: React.
 
   const { data: employee } = await supabase
     .from("employees")
-    .select("*, permission_templates(toggles)")
+    .select("*, permission_templates(toggles), titles(default_permission_template_id)")
     .eq("user_id", user?.id)
     .single();
   const { data: profile } = user
@@ -32,7 +32,12 @@ export default async function EmployeeAppLayout({ children }: { children: React.
   const employeeTemplate = Array.isArray((employee as any)?.permission_templates)
     ? (employee as any).permission_templates[0]
     : (employee as any)?.permission_templates;
-  const toggles = effectiveToggles(employeeTemplate?.toggles, employee?.permission_overrides);
+  const title = Array.isArray((employee as any)?.titles) ? (employee as any).titles[0] : (employee as any)?.titles;
+  const titleTemplateId = title?.default_permission_template_id;
+  const { data: titleTemplate } = employee && titleTemplateId
+    ? await supabase.from("permission_templates").select("toggles").eq("id", titleTemplateId).maybeSingle()
+    : { data: null };
+  const toggles = effectiveToggles(titleTemplate?.toggles ?? employeeTemplate?.toggles, employee?.permission_overrides);
   const { data: company } = employee
     ? await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle()
     : { data: null };
@@ -111,8 +116,12 @@ export default async function EmployeeAppLayout({ children }: { children: React.
     nav.push({ href: "/app/finance/expense-claims", label: "Expense Claims", icon: "ReceiptText", section: "Finance" });
   }
   if (moduleEnabled(featureBundle, "expense")) nav.push({ href: "/app/expenses", label: "Expenses", icon: "ReceiptText", section: "Finance" });
-  if (hasPermission(toggles, "view_hierarchy_reports")) {
+  const canFollowUpReports = hasPermission(toggles, "view_follow_up_reports") || hasPermission(toggles, "view_dcr_reports");
+  if (moduleEnabled(featureBundle, "dcr") && (hasPermission(toggles, "view_hierarchy_reports") || canFollowUpReports)) {
     nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3", section: "Insights" });
+  }
+  if (moduleEnabled(featureBundle, "dcr") && canFollowUpReports) {
+    nav.push({ href: "/app/reports/follow-up", label: "Follow-up Report", icon: "BarChart3", section: "Insights" });
   }
   if (canFinance && financeReportsEnabled) {
     if (hasFinanceReportPermission(employee, toggles, "view_finance_journal_report")) nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
