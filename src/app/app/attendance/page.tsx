@@ -158,11 +158,10 @@ export default function AttendancePage() {
   }, [daysInMonth, holidaysByDate, leavesByDate, rowsByDate, selectedMonth, today]);
 
   function openDate(date: string) {
-    if (date > today) return;
     setSelectedDate(date);
     const row = rowsByDate.get(date);
     const leave = leavesByDate.get(date);
-    setEntryType(leave ? "leave" : "attendance");
+    setEntryType(date > today || leave ? "leave" : "attendance");
     setLeaveTypeId(leave?.leave_type_id ?? leaveTypes[0]?.id ?? "");
     setLeaveStartDate(leave?.start_date ?? date);
     setLeaveEndDate(leave?.end_date ?? date);
@@ -265,7 +264,7 @@ export default function AttendancePage() {
             const color = leave ? "border-blue-200 bg-blue-100 text-blue-800" : row?.status === "absent" ? "border-red-200 bg-red-100 text-red-800" : row?.status === "present" ? "border-green-200 bg-green-100 text-green-800" : holiday ? "border-blue-200 bg-blue-100 text-blue-800" : greyed ? "border-ink-100 bg-ink-100 text-ink-400" : "border-amber-200 bg-amber-100 text-amber-800";
             const description = leave ? `Leave — ${leaveTypeName(leave)} — ${leave.status}` : row ? `${row.status.replace("_", " ")} — ${locationLabel(row.work_location)}${row.check_in_comment ? ` — ${row.check_in_comment}` : ""}` : holiday?.name ?? (future ? "Future date" : isWeekend(date) ? "Weekend" : "Missing attendance");
             const cellText = leave ? `Leave: ${leaveTypeName(leave)}` : row?.check_in_comment?.trim() || (row ? `${row.status === "present" ? "Present" : row.status.replace("_", " ")} ${locationLabel(row.work_location).replace("Working from ", "")}` : holiday?.name ?? (future ? "" : isWeekend(date) ? "Weekend" : "Missing"));
-            return <button key={date} type="button" disabled={future} title={description} onClick={() => openDate(date)} className={`min-h-20 rounded-lg border p-2 text-left transition ${future ? "cursor-not-allowed" : "hover:ring-2 hover:ring-brand-300"} ${color} ${selectedDate === date ? "ring-2 ring-brand-500" : ""}`}><span className="font-semibold">{Number(date.slice(-2))}</span><span className="mt-1 block truncate text-[10px] leading-tight">{cellText}</span></button>;
+            return <button key={date} type="button" title={description} onClick={() => openDate(date)} className={`min-h-20 rounded-lg border p-2 text-left transition hover:ring-2 hover:ring-brand-300 ${color} ${selectedDate === date ? "ring-2 ring-brand-500" : ""}`}><span className="font-semibold">{Number(date.slice(-2))}</span><span className="mt-1 block truncate text-[10px] leading-tight">{cellText}</span></button>;
           })}
         </div>
         <div className="mt-5 flex flex-wrap gap-3 text-xs text-ink-600">
@@ -293,7 +292,7 @@ export default function AttendancePage() {
             ) : (
               <>
                 <label className="label mt-5" htmlFor="modal-entry-type">Entry type</label>
-                <select id="modal-entry-type" className="input mt-1" value={entryType} onChange={(event) => { setEntryType(event.target.value as "attendance" | "leave"); setError(null); }} disabled={loading}>
+                <select id="modal-entry-type" className="input mt-1" value={entryType} onChange={(event) => { setEntryType(event.target.value as "attendance" | "leave"); setError(null); }} disabled={loading || selectedDate > today}>
                   <option value="attendance">Attendance</option>
                   <option value="leave">Leave</option>
                 </select>
