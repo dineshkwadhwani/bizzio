@@ -69,11 +69,16 @@ function getResend(apiKey?: string) {
   return new Resend(key);
 }
 
-export function encryptTenantApiKey(plaintext: string) {
+function getEncryptionKey() {
   const encryptionKey = process.env.RESEND_CONFIG_ENCRYPTION_KEY;
   if (!encryptionKey) throw new Error("RESEND_CONFIG_ENCRYPTION_KEY is not configured");
   const key = Buffer.from(encryptionKey, /^[0-9a-f]{64}$/i.test(encryptionKey) ? "hex" : "base64");
   if (key.length !== 32) throw new Error("RESEND_CONFIG_ENCRYPTION_KEY must be a 32-byte key");
+  return key;
+}
+
+export function encryptTenantApiKey(plaintext: string) {
+  const key = getEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -81,11 +86,7 @@ export function encryptTenantApiKey(plaintext: string) {
 }
 
 export function decryptTenantApiKey(ciphertext: string) {
-  const encryptionKey = process.env.RESEND_CONFIG_ENCRYPTION_KEY;
-  if (!encryptionKey) throw new Error("RESEND_CONFIG_ENCRYPTION_KEY is not configured");
-  const key = Buffer.from(encryptionKey, /^[0-9a-f]{64}$/i.test(encryptionKey) ? "hex" : "base64");
-  if (key.length !== 32) throw new Error("RESEND_CONFIG_ENCRYPTION_KEY must be a 32-byte key");
-
+  const key = getEncryptionKey();
   const [ivText, authTagText, encryptedText] = ciphertext.split(":");
   if (!ivText || !authTagText || !encryptedText) throw new Error("Invalid encrypted Resend API key");
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivText, "base64url"));
@@ -111,10 +112,8 @@ export async function validateResendTenantConfig(apiKey: string, fromEmail: stri
   return { valid: true, message: "Resend accepted the API key and sender domain." };
 }
 
-function platformFrom() {
-  return `${process.env.RESEND_FROM_NAME ?? "Bizzio Online"} <${
-    process.env.RESEND_FROM_EMAIL ?? "contact@bizzio.online"
-  }>`;
+function platformFrom(fromName = process.env.RESEND_FROM_NAME ?? "Bizzio Online", fromEmail = process.env.RESEND_FROM_EMAIL ?? "contact@bizzio.online") {
+  return `${fromName} <${fromEmail}>`;
 }
 
 /** Platform mail: registration, account lifecycle, and other Bizzio mail. */
