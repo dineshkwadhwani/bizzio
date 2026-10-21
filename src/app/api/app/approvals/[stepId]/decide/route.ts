@@ -56,6 +56,11 @@ export async function POST(
     return NextResponse.json({ error: "Only expense claims can be returned to the employee." }, { status: 400 });
   }
 
+  if (decision === "approved" && step.entity_type === "leave_request") {
+    const balanceError = await earnedLeaveBalanceError(database, step.entity_id, approver.company_id);
+    if (balanceError) return NextResponse.json({ error: balanceError }, { status: 400 });
+  }
+
   await database
     .from("approval_steps")
     .update({ status: decision === "returned" ? "rejected" : decision, comment, decided_at: new Date().toISOString() })
@@ -70,6 +75,19 @@ export async function POST(
   }
 
   return NextResponse.json({ ok: true });
+}
+
+async function earnedLeaveBalanceError(supabase: any, requestId: string, companyId: string) {
+  const { data: request } = await supabase.from("leave_requests").select("id, employee_id, leave_type_id, start_date, end_date, is_half_day, leave_types(name)").eq("id", requestId).eq("company_id", companyId).single();
+  if (!request) return "Leave request not found.";
+  const type = Array.isArray(request.leave_types) ? request.leave_types[0] : request.leave_types;
+  if (!/earned\s*leave/.test((type?.name ?? "").toLowerCase())) return null;
+  const { data: balance } = await supabase.from("leave_balances").select("balance").eq("employee_id", request.employee_id).eq("leave_type_id", request.leave_type_id).maybeSingle();
+  if (!balance) return "No earned leave balance is configured for this employee.";
+  const requestDays = (Math.floor((new Date(`${request.end_date}T00:00:00Z`).getTime() - new Date(`${request.start_date}T00:00:00Z`).getTime()) / 86400000) + 1) * (request.is_half_day ? 0.5 : 1);
+  const { data: pending } = await supabase.from("leave_requests").select("start_date, end_date, is_half_day").eq("employee_id", request.employee_id).eq("leave_type_id", request.leave_type_id).in("status", ["submitted", "pending_level2"]).neq("id", request.id);
+  const reserved = (pending ?? []).reduce((total: number, item: any) => total + (Math.floor((new Date(`${item.end_date}T00:00:00Z`).getTime() - new Date(`${item.start_date}T00:00:00Z`).getTime()) / 86400000) + 1) * (item.is_half_day ? 0.5 : 1), 0);
+  return requestDays > Number(balance.balance) - reserved ? `Insufficient earned leave balance. Available balance: ${Math.max(0, Number(balance.balance) - reserved)} days.` : null;
 }
 
 async function handleTimesheetDecision(supabase: any, step: any, decision: string, companyId: string) {

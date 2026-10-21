@@ -36,6 +36,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Your employee hierarchy is incomplete. Please contact the company administrator." }, { status: 409 });
   }
 
+  const { data: leaveType } = await supabase
+    .from("leave_types")
+    .select("id, name, company_id")
+    .eq("id", parsed.data.leave_type_id)
+    .eq("company_id", employee.company_id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!leaveType) return NextResponse.json({ error: "The selected leave type is not available." }, { status: 400 });
+
+  const start = new Date(`${parsed.data.start_date}T00:00:00Z`);
+  const end = new Date(`${parsed.data.end_date}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return NextResponse.json({ error: "The leave date range is invalid." }, { status: 400 });
+  }
+  const requestedDays = (Math.floor((end.getTime() - start.getTime()) / 86400000) + 1) * (parsed.data.is_half_day ? 0.5 : 1);
+  const isEarnedLeave = /earned\s*leave/.test(leaveType.name.toLowerCase());
+  if (isEarnedLeave) {
+    const { data: balance } = await supabase.from("leave_balances").select("balance").eq("employee_id", employee.id).eq("leave_type_id", leaveType.id).maybeSingle();
+    if (!balance) return NextResponse.json({ error: "No earned leave balance is configured for you." }, { status: 400 });
+    const { data: pendingRequests } = await supabase.from("leave_requests").select("start_date, end_date, is_half_day").eq("employee_id", employee.id).eq("leave_type_id", leaveType.id).in("status", ["submitted", "pending_level2"]);
+    const reservedDays = (pendingRequests ?? []).reduce((total: number, request: any) => {
+      const requestStart = new Date(`${request.start_date}T00:00:00Z`); const requestEnd = new Date(`${request.end_date}T00:00:00Z`);
+      return total + (Math.floor((requestEnd.getTime() - requestStart.getTime()) / 86400000) + 1) * (request.is_half_day ? 0.5 : 1);
+    }, 0);
+    if (requestedDays > Number(balance.balance) - reservedDays) {
+      return NextResponse.json({ error: `Insufficient earned leave balance. Available balance: ${Math.max(0, Number(balance.balance) - reservedDays)} days.` }, { status: 400 });
+    }
+  }
+
   // Holiday-date guard (Module 3 §2.1) — reject if any date in range is a holiday.
   const { data: holidays } = await supabase
     .from("holidays")

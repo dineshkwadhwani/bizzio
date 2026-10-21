@@ -17,7 +17,7 @@ export const moduleHelp: Record<string, HelpContext[]> = {
     c("/app/directory", "Directory", "Find colleagues, contact details, departments and reporting relationships within your company.", ["Search: filters people by name or contact details.", "Employee card: shows profile, department, title and manager."], ["Open profile: reviews available directory information."]),
     c("/app/notifications", "Notifications", "Review system notifications and important workflow updates.", ["Notification: message, timestamp and read state."], ["Open notification: follows the related record.", "Mark as read: clears the unread state."]),
     c("/app/approvals", "Approvals", "A unified inbox for leave, timesheet and expense claims waiting for your decision.", ["Request details: requester, type, dates or amount.", "Comment: optional reason for an approval decision."], ["Approve: advances the request.", "Reject: sends it back with the decision reason.", "Open: reviews the complete request and history."]),
-    c("/app/reports", "Workspace Reports", "View reports available to you based on role and reporting permissions.", ["Report filters: date, team or status depending on the report."], ["Run / Filter: refreshes the report.", "Export: downloads the available report output."])
+    c("/app/reports", "Reports", "View the Company Dashboard or Pipeline Report when the corresponding permission is enabled.", ["Pipeline filters: date range, lead status and sales executive."], ["Open Company Dashboard: review company-wide summaries.", "Open Pipeline Report: review DCR activity and sales-pipeline status."])
   ],
   attendance: [
     c("/app/attendance", "Attendance", "Record your daily presence and review your attendance history.", ["Comment: optional note attached to a check-in or check-out.", "History: date, status, time and work location."], ["Check In: starts today’s attendance.", "Check Out: closes today’s attendance.", "Refresh: reloads the current attendance state."], ["Only check out after you have checked in. The exact available actions depend on today’s state."])
@@ -73,7 +73,7 @@ export const moduleHelp: Record<string, HelpContext[]> = {
     c("/superadmin/notifications", "SuperAdmin Notifications", "Review platform notifications and operational alerts.", ["Notification message, date and status."], ["Open: reviews the alert context."])
   ],
   approvals: [c("/app/approvals", "Approvals", "Review leave, timesheet and expense requests assigned to your approval role.", ["Request details, requester, dates or amount.", "Decision comment: reason for approval or rejection."], ["Approve: advances the request.", "Reject: returns it with a reason.", "Open: reviews supporting details."])],
-  reports: [c("/app/reports", "Employee Reports", "View reports permitted for your role, such as attendance, leave, timesheet, DCR or expenses.", ["Date range, employee/team and status filters where available."], ["Run / Filter: refreshes report results.", "Export: downloads the available report format."])],
+  reports: [c("/app/reports", "Reports", "View the Company Dashboard or Pipeline Report when the corresponding permission is enabled.", ["Pipeline filters: date range, lead status and sales executive."], ["Open Company Dashboard: review company-wide summaries.", "Open Pipeline Report: review DCR activity and sales-pipeline status."])],
 };
 
 export function getHelpContext(module: string, path: string) {

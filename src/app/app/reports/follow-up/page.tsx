@@ -44,7 +44,7 @@ async function getReportScope(supabase: any, employee: any) {
   return { employeeIds: visibleSales.map((row: any) => row.id), salesExecutives: visibleSales };
 }
 
-export default async function FollowUpReportPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function PipelineReportPage({ searchParams }: { searchParams: SearchParams }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return <div className="card p-6 text-sm text-ink-500">Please sign in to view reports.</div>;
@@ -66,7 +66,7 @@ export default async function FollowUpReportPage({ searchParams }: { searchParam
   const toggles = effectiveToggles(titleTemplate?.toggles ?? template?.toggles, employee.permission_overrides);
   const canFollowUpReports = hasPermission(toggles, "view_follow_up_reports") || hasPermission(toggles, "view_dcr_reports");
   if (!canFollowUpReports) {
-    return <div className="card p-6 text-sm text-ink-500">You do not have permission to view the Follow-up Report.</div>;
+    return <div className="card p-6 text-sm text-ink-500">You do not have permission to view the Pipeline Report.</div>;
   }
 
   const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
@@ -101,16 +101,35 @@ export default async function FollowUpReportPage({ searchParams }: { searchParam
     const lead = Array.isArray(row.dcr_leads) ? row.dcr_leads[0] : row.dcr_leads;
     return status === "all" || lead?.status === status;
   });
+  const pipelineRows = interactions ?? [];
+  const getLeadStatus = (row: any) => {
+    const lead = Array.isArray(row.dcr_leads) ? row.dcr_leads[0] : row.dcr_leads;
+    return lead?.status ?? "new";
+  };
+  const pipelineStats = {
+    total: pipelineRows.length,
+    contacted: pipelineRows.filter((row: any) => getLeadStatus(row) === "contacted").length,
+    converted: pipelineRows.filter((row: any) => getLeadStatus(row) === "converted").length,
+    lost: pipelineRows.filter((row: any) => getLeadStatus(row) === "lost").length,
+    interested: pipelineRows.filter((row: any) => getLeadStatus(row) === "interested").length
+  };
+  const openCount = pipelineRows.filter((row: any) => !["converted", "lost"].includes(getLeadStatus(row))).length;
 
   return (
     <div className="max-w-6xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/app/reports" className="text-sm text-brand-600 hover:underline">← Reports</Link>
-          <h1 className="mt-2 text-2xl font-bold text-ink-900">Follow-up Report</h1>
+          <h1 className="mt-2 text-2xl font-bold text-ink-900">Pipeline Report</h1>
           <p className="mt-1 text-sm text-ink-500">All DCR entries available within your reporting scope.</p>
         </div>
         <span className="badge bg-ink-100 text-ink-600">{rows.length} entries</span>
+      </div>
+
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-6">
+        {[["Total Calls", pipelineStats.total], ["Contacted", pipelineStats.contacted], ["Converted", pipelineStats.converted], ["Lost", pipelineStats.lost], ["Interested", pipelineStats.interested], ["Open", openCount]].map(([label, value]) => (
+          <div key={label} className="card px-4 py-3"><p className="text-xs font-medium text-ink-500">{label}</p><p className="mt-1 text-2xl font-bold text-ink-900">{value}</p></div>
+        ))}
       </div>
 
       <form method="get" className="card mt-6 grid gap-4 md:grid-cols-4">

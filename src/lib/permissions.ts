@@ -55,10 +55,12 @@ export const PERMISSION_GROUPS = [
       ["view_finance_transaction_report", "Transaction report"],
       ["view_finance_balance_sheet", "Balance sheet"],
       ["view_finance_invoice_report", "Invoice report"],
-      ["view_hierarchy_reports", "Hierarchy reports"],
+      ["view_hierarchy_reports", "Company Dashboard"],
+      ["view_attendance_reports", "Attendance reports"],
+      ["view_leave_reports", "Leave reports"],
       ["view_timesheet_reports", "Timesheet reports"],
       ["view_dcr_reports", "DCR reports"],
-      ["view_follow_up_reports", "Follow-up reports"]
+      ["view_follow_up_reports", "Pipeline reports"]
     ]
   },
   {
@@ -80,6 +82,9 @@ export const ALL_PERMISSION_KEYS = PERMISSION_GROUPS.flatMap((group) => group.pe
 export function completePermissionSet(toggles: Record<string, boolean> | null | undefined) {
   const completed: Record<string, boolean> = {};
   for (const key of ALL_PERMISSION_KEYS) completed[key] = toggles?.[key] === true;
+  // Leave reports are available to employees by default, while remaining
+  // configurable in permission templates (an explicit false still disables it).
+  if (toggles?.view_leave_reports === undefined) completed.view_leave_reports = true;
   const cleaned = { ...(toggles ?? {}) };
   delete cleaned.capability_hr;
   delete cleaned.capability_finance;
@@ -124,5 +129,7 @@ export function effectiveToggles(
   templateToggles: Toggles | null | undefined,
   overrides: Toggles | null | undefined
 ): Toggles {
-  return { ...(templateToggles ?? {}), ...(overrides ?? {}) };
+  const merged = { ...(templateToggles ?? {}), ...(overrides ?? {}) };
+  if (merged.view_leave_reports === undefined) merged.view_leave_reports = true;
+  return merged;
 }

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import { effectiveToggles, hasPermission } from "@/lib/permissions";
 
@@ -49,8 +50,13 @@ export default async function EmployeeReportsPage() {
     ? await supabase.from("permission_templates").select("toggles").eq("id", title.default_permission_template_id).maybeSingle()
     : { data: null };
   const toggles = effectiveToggles(titleTemplate?.toggles ?? template?.toggles, employee.permission_overrides);
+  const canCompanyDashboard = hasPermission(toggles, "view_hierarchy_reports");
   const canFollowUpReports = hasPermission(toggles, "view_follow_up_reports") || hasPermission(toggles, "view_dcr_reports");
-  if (!hasPermission(toggles, "view_hierarchy_reports") && !canFollowUpReports) {
+  const canAttendanceReports = hasPermission(toggles, "view_attendance_reports");
+  const canLeaveReports = hasPermission(toggles, "view_leave_reports");
+  const canTimesheetReports = hasPermission(toggles, "view_timesheet_reports");
+  const canDcrReports = hasPermission(toggles, "view_dcr_reports");
+  if (!canCompanyDashboard && !canFollowUpReports) {
     return <div className="card p-6 text-sm text-ink-500">You do not have permission to view this report.</div>;
   }
 
@@ -71,7 +77,9 @@ export default async function EmployeeReportsPage() {
       .select("id, status, employee_id, start_date, end_date")
       .eq("company_id", employee.company_id)
       .in("employee_id", visibleIds)
-      .in("status", ["submitted", "pending_level2"]),
+      .lte("start_date", today)
+      .gte("end_date", today)
+      .not("status", "in", "(rejected,cancelled)"),
     supabase
       .from("timesheets")
       .select("id, status, employee_id")
@@ -100,31 +108,34 @@ export default async function EmployeeReportsPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-ink-900">Reports</h1>
-      <p className="mt-1 text-sm text-ink-500">
-        {scopeLabel}: {hasHierarchyScope ? "manager/director/CEO hierarchy data" : "your own data only"}
-      </p>
+      <p className="mt-1 text-sm text-ink-500">{canCompanyDashboard ? `${scopeLabel}: ${hasHierarchyScope ? "manager/director/CEO hierarchy data" : "your own data only"}` : "Reports available to you"}</p>
 
+      {canCompanyDashboard && <>
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="card">
+        <Link href="/app/reports/attendance" className={`card ${canAttendanceReports ? "hover:border-brand-300" : ""}`}>
           <p className="text-sm text-ink-500">Team Attendance Today</p>
           <p className="mt-2 text-3xl font-bold text-ink-900">{attendanceCounts.present}</p>
           <p className="mt-1 text-xs text-ink-400">Present · {attendanceCounts.absent} absent · {attendanceCounts.leave} leave</p>
-        </div>
-        <div className="card">
+        </Link>
+        <Link href="/app/reports/leave" className={`card ${canLeaveReports ? "hover:border-brand-300" : ""}`}>
           <p className="text-sm text-ink-500">Team Leave</p>
           <p className="mt-2 text-3xl font-bold text-ink-900">{leaveReqs.data?.length ?? 0}</p>
-          <p className="mt-1 text-xs text-ink-400">Open requests in current scope</p>
-        </div>
-        <div className="card">
+          <p className="mt-1 text-xs text-ink-400">Currently on leave</p>
+        </Link>
+        <Link href="/app/reports/timesheets" className={`card ${canTimesheetReports ? "hover:border-brand-300" : ""}`}>
           <p className="text-sm text-ink-500">Monthly Timesheet</p>
           <p className="mt-2 text-3xl font-bold text-ink-900">{timesheets.data?.filter((r: any) => r.status === "submitted").length ?? 0}</p>
           <p className="mt-1 text-xs text-ink-400">Submitted this month</p>
-        </div>
-        <div className="card">
+        </Link>
+        {canDcrReports ? <Link href="/app/reports/dcr" className="card hover:border-brand-300">
           <p className="text-sm text-ink-500">DCR / Activity</p>
           <p className="mt-2 text-3xl font-bold text-ink-900">{dcrInteractions.data?.length ?? 0}</p>
           <p className="mt-1 text-xs text-ink-400">Interactions logged today</p>
-        </div>
+        </Link> : <div className="card">
+          <p className="text-sm text-ink-500">DCR / Activity</p>
+          <p className="mt-2 text-3xl font-bold text-ink-900">{dcrInteractions.data?.length ?? 0}</p>
+          <p className="mt-1 text-xs text-ink-400">Interactions logged today</p>
+        </div>}
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -141,12 +152,13 @@ export default async function EmployeeReportsPage() {
           </div>
         </div>
       </div>
+      </>}
 
       {canFollowUpReports && (
         <div className="card mt-6">
-          <h2 className="font-semibold text-ink-900">Follow-up Report</h2>
+          <h2 className="font-semibold text-ink-900">Pipeline Report</h2>
           <p className="mt-1 text-sm text-ink-500">Review DCR entries by date, lead status and sales executive.</p>
-          <a href="/app/reports/follow-up" className="btn-primary mt-4 inline-flex">Open Follow-up Report</a>
+          <Link href="/app/reports/follow-up" className="btn-primary mt-4 inline-flex">Open Pipeline Report</Link>
         </div>
       )}
     </div>

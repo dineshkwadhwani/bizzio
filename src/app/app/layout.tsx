@@ -117,12 +117,18 @@ export default async function EmployeeAppLayout({ children }: { children: React.
   }
   if (moduleEnabled(featureBundle, "expense")) nav.push({ href: "/app/expenses", label: "Expenses", icon: "ReceiptText", section: "Finance" });
   const canFollowUpReports = hasPermission(toggles, "view_follow_up_reports") || hasPermission(toggles, "view_dcr_reports");
-  if (moduleEnabled(featureBundle, "dcr") && (hasPermission(toggles, "view_hierarchy_reports") || canFollowUpReports)) {
-    nav.push({ href: "/app/reports", label: "Reports", icon: "BarChart3", section: "Insights" });
+  if (hasPermission(toggles, "view_hierarchy_reports")) {
+    nav.push({ href: "/app/reports", label: "Company Dashboard", icon: "BarChart3", section: "Insights" });
   }
   if (moduleEnabled(featureBundle, "dcr") && canFollowUpReports) {
-    nav.push({ href: "/app/reports/follow-up", label: "Follow-up Report", icon: "BarChart3", section: "Insights" });
+    nav.push({ href: "/app/reports/follow-up", label: "Pipeline Report", icon: "BarChart3", section: "Insights" });
   }
+  if (moduleEnabled(featureBundle, "dcr") && hasPermission(toggles, "view_dcr_reports")) {
+    nav.push({ href: "/app/reports/dcr", label: "DCR Report", icon: "FileText", section: "Insights" });
+  }
+  if (hasPermission(toggles, "view_attendance_reports")) nav.push({ href: "/app/reports/attendance", label: "Attendance Report", icon: "FileText", section: "Insights" });
+  if (hasPermission(toggles, "view_leave_reports")) nav.push({ href: "/app/reports/leave", label: "Leave Report", icon: "FileText", section: "Insights" });
+  if (moduleEnabled(featureBundle, "timesheets") && hasPermission(toggles, "view_timesheet_reports")) nav.push({ href: "/app/reports/timesheets", label: "Timesheet Report", icon: "FileText", section: "Insights" });
   if (canFinance && financeReportsEnabled) {
     if (hasFinanceReportPermission(employee, toggles, "view_finance_journal_report")) nav.push({ href: "/app/finance/reports/journal", label: "Journal Report", icon: "FileText", section: "Insights" });
     if (hasFinanceReportPermission(employee, toggles, "view_finance_transaction_report")) nav.push({ href: "/app/finance/reports/transactions", label: "Transaction Report", icon: "FileText", section: "Insights" });

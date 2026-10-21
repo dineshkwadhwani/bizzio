@@ -8,6 +8,7 @@ const TOGGLE_GROUPS = PERMISSION_GROUPS.map((group) => ({
   area: group.area,
   toggles: group.permissions.map(([key, label]) => ({ key, label }))
 }));
+const PERMISSION_LABELS: Record<string, string> = Object.fromEntries(TOGGLE_GROUPS.flatMap((group) => group.toggles.map((toggle) => [toggle.key, toggle.label])));
 
 export default function PermissionTemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -140,7 +141,7 @@ export default function PermissionTemplatesPage() {
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
                   {Object.entries(t.toggles ?? {}).filter(([, v]) => v).map(([k]) => (
-                    <span key={k} className="badge bg-ink-100 text-ink-600">{k}</span>
+                    <span key={k} className="badge bg-ink-100 text-ink-600">{PERMISSION_LABELS[k] ?? k}</span>
                   ))}
                 </div>
               </>
