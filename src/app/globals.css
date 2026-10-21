@@ -42,6 +42,11 @@ body {
     margin: 10mm;
   }
 
+  @page id-card {
+    size: 54mm 86mm;
+    margin: 0;
+  }
+
   body * {
     visibility: hidden;
   }
@@ -67,6 +72,21 @@ body {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     background-color: #ffffff !important;
+  }
+
+  body.printing-employee-id-card {
+    width: 54mm !important;
+    height: 86mm !important;
+    overflow: hidden !important;
+  }
+
+  body.printing-employee-id-card .employee-id-card-printable {
+    page: id-card;
+    position: fixed !important;
+    inset: 0 !important;
+    width: 54mm !important;
+    height: 86mm !important;
+    margin: 0 !important;
   }
 
   .employee-id-card-printable,

@@ -21,6 +21,12 @@ export function EmployeeIdCard({ employee, company }: EmployeeIdCardProps) {
   const fontColor = /^#[0-9a-f]{6}$/i.test(company.branding_font_color ?? "") ? company.branding_font_color! : "#ffffff";
 
   function downloadPdf() {
+    document.body.classList.add("printing-employee-id-card");
+    window.addEventListener(
+      "afterprint",
+      () => document.body.classList.remove("printing-employee-id-card"),
+      { once: true },
+    );
     window.print();
   }
 
