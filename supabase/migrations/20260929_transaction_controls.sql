@@ -32,7 +32,7 @@ begin
   where e.id = p_actor_employee_id
     and e.user_id = p_actor_user_id
     and e.company_id = p_company_id
-  for update;
+  for update of e;
 
   if actor.id is null or actor.status <> 'active' or actor.left_at is not null then
     raise exception 'The transaction actor is not active in this company';
