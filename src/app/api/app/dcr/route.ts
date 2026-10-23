@@ -10,6 +10,8 @@ const leadStatus = ["new", "contacted", "interested", "negotiation", "converted"
 
 const CreateLeadSchema = z.object({
   customer_name: z.string().trim().min(1).max(255),
+  contact_person: z.string().trim().max(255).optional().nullable(),
+  contact_phone: z.string().trim().max(50).optional().nullable(),
   status: z.enum(leadStatus).default("new"),
   next_followup_date: z.string().optional().nullable()
 });
@@ -104,6 +106,8 @@ export async function POST(request: Request) {
       company_id: employee.company_id,
       employee_id: employee.id,
       customer_name: parsed.data.customer_name,
+      contact_person: parsed.data.contact_person || null,
+      contact_phone: parsed.data.contact_phone || null,
       status: parsed.data.status ?? "new",
       next_followup_date: parsed.data.next_followup_date || null
     })

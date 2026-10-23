@@ -14,7 +14,14 @@ begin
     raise exception 'delete_finance_transaction function was not found';
   end if;
 
-  function_definition := replace(function_definition, '  for update;', '  for update of e;');
+  function_definition := regexp_replace(
+    function_definition,
+    'for[[:space:]]+update[[:space:]]*;',
+    'FOR UPDATE OF e;',
+    1,
+    1,
+    'i'
+  );
   execute function_definition;
 end;
 $$;

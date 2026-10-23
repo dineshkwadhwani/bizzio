@@ -10,6 +10,8 @@ const leadStatus = ["new", "contacted", "interested", "negotiation", "converted"
 
 const UpdateLeadSchema = z.object({
   customer_name: z.string().trim().min(1).max(255).optional(),
+  contact_person: z.string().trim().max(255).optional().nullable(),
+  contact_phone: z.string().trim().max(50).optional().nullable(),
   status: z.enum(leadStatus).optional(),
   next_followup_date: z.string().optional().nullable()
 });
@@ -81,6 +83,8 @@ export async function PUT(request: Request, { params }: { params: { leadId: stri
 
   const updates: Record<string, any> = {};
   if (parsed.data.customer_name) updates.customer_name = parsed.data.customer_name;
+  if (parsed.data.contact_person !== undefined) updates.contact_person = parsed.data.contact_person || null;
+  if (parsed.data.contact_phone !== undefined) updates.contact_phone = parsed.data.contact_phone || null;
   if (parsed.data.status) updates.status = parsed.data.status;
   if (parsed.data.next_followup_date !== undefined) updates.next_followup_date = parsed.data.next_followup_date || null;
 

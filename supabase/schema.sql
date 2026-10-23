@@ -344,6 +344,8 @@ create table dcr_leads (
   company_id         uuid not null references companies(id) on delete cascade,
   employee_id        uuid not null references employees(id) on delete cascade,
   customer_name      text not null,
+  contact_person     text,
+  contact_phone      text,
   status             dcr_lead_status not null default 'new',
   next_followup_date date,
   created_at         timestamptz not null default now(),

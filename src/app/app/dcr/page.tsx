@@ -8,6 +8,8 @@ import { formatDate } from "@/lib/utils";
 type Lead = {
   id: string;
   customer_name: string;
+  contact_person: string | null;
+  contact_phone: string | null;
   status: string;
   next_followup_date: string | null;
   updated_at: string;
@@ -24,6 +26,8 @@ const STATUS_STYLE: Record<string, string> = {
 
 export default function DcrPage() {
   const [customerName, setCustomerName] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +49,11 @@ export default function DcrPage() {
     const res = await fetch("/api/app/dcr", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_name: customerName })
+    body: JSON.stringify({
+      customer_name: customerName,
+      contact_person: contactPerson || null,
+      contact_phone: contactPhone || null
+    })
     });
     const json = await res.json();
     setLoading(false);
@@ -56,6 +64,8 @@ export default function DcrPage() {
     }
 
     setCustomerName("");
+    setContactPerson("");
+    setContactPhone("");
     load();
   }
 
@@ -69,14 +79,10 @@ export default function DcrPage() {
         <Link href="/app/dcr/daily" className="btn-secondary">Daily View</Link>
       </div>
 
-      <form onSubmit={addLead} className="card mt-6 flex flex-col gap-3 sm:flex-row">
-        <input
-          className="input flex-1"
-          placeholder="Customer / prospect name"
-          value={customerName}
-          onChange={(e) => setCustomerName(e.target.value)}
-          required
-        />
+      <form onSubmit={addLead} className="card mt-6 grid gap-3 sm:grid-cols-2">
+        <input className="input" placeholder="Customer / prospect name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+        <input className="input" placeholder="Contact person (optional)" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
+        <input className="input" placeholder="Contact phone number (optional)" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} inputMode="tel" />
         <button type="submit" className="btn-primary" disabled={loading}>
           <Plus size={16} className="mr-2" /> {loading ? "Saving…" : "Add Lead"}
         </button>
@@ -94,6 +100,7 @@ export default function DcrPage() {
             <Link key={lead.id} href={`/app/dcr/${lead.id}`} className="flex items-center justify-between px-4 py-3 text-sm transition hover:bg-ink-50">
               <div>
                 <p className="font-medium text-ink-800">{lead.customer_name}</p>
+                {(lead.contact_person || lead.contact_phone) && <p className="text-xs text-ink-500">{[lead.contact_person, lead.contact_phone].filter(Boolean).join(" · ")}</p>}
                 <p className="text-ink-400">Updated {formatDate(lead.updated_at)}</p>
               </div>
               <div className="flex items-center gap-3">

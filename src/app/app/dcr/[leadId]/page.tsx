@@ -16,6 +16,8 @@ type Interaction = {
 type Lead = {
   id: string;
   customer_name: string;
+  contact_person: string | null;
+  contact_phone: string | null;
   status: string;
   next_followup_date: string | null;
   dcr_interactions: Interaction[];
@@ -32,6 +34,8 @@ export default function LeadDetailPage() {
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState("new");
   const [nextFollowupDate, setNextFollowupDate] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +50,8 @@ export default function LeadDetailPage() {
     setLead(json.lead);
     setStatus(json.lead.status ?? "new");
     setNextFollowupDate(json.lead.next_followup_date ?? "");
+    setContactPerson(json.lead.contact_person ?? "");
+    setContactPhone(json.lead.contact_phone ?? "");
   }
 
   useEffect(() => { load(); }, [leadId]);
@@ -58,7 +64,12 @@ export default function LeadDetailPage() {
     const res = await fetch(`/api/app/dcr/${leadId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status, next_followup_date: nextFollowupDate || null })
+      body: JSON.stringify({
+        contact_person: contactPerson || null,
+        contact_phone: contactPhone || null,
+        status,
+        next_followup_date: nextFollowupDate || null
+      })
     });
     const json = await res.json();
     setLoading(false);
@@ -95,11 +106,20 @@ export default function LeadDetailPage() {
         <div>
           <h1 className="text-2xl font-bold text-ink-900">{lead.customer_name}</h1>
           <p className="mt-1 text-sm text-ink-500">Append-only interaction history for this customer.</p>
+          {(lead.contact_person || lead.contact_phone) && <p className="mt-2 text-sm text-ink-600">{[lead.contact_person, lead.contact_phone].filter(Boolean).join(" · ")}</p>}
         </div>
       </div>
 
       <form onSubmit={updateLead} className="card space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink-700">Contact person</span>
+            <input className="input" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="Primary contact name" />
+          </label>
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink-700">Contact phone</span>
+            <input className="input" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Phone number" inputMode="tel" />
+          </label>
           <label className="space-y-2">
             <span className="text-sm font-medium text-ink-700">Status</span>
             <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
