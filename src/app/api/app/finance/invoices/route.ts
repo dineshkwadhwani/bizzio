@@ -21,8 +21,8 @@ const InvoiceSchema = z.object({
   status: z.enum(["draft", "reviewed", "sent", "paid"]).optional(),
   lines: z.array(LineItemSchema).min(1),
   advance_application: z.object({ advance_id: z.string().uuid(), amount: z.coerce.number().positive() }).optional().nullable()
-}).refine((data) => Boolean(data.so_id) !== Boolean(data.quotation_id), {
-  message: "Select either a sales order or a quotation.",
+}).refine((data) => !(data.so_id && data.quotation_id), {
+  message: "Select either a sales order or a quotation, not both.",
   path: ["so_id"]
 });
 

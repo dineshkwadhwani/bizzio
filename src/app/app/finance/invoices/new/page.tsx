@@ -242,20 +242,20 @@ export default function NewInvoicePage() {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label className="label">Create from Sales Order</label>
-            <select className="input" value={salesOrderId} onChange={(e) => void selectSalesOrder(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))} required={!quotationId}>
+            <select className="input" value={salesOrderId} onChange={(e) => void selectSalesOrder(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))}>
               <option value="">Select a sales order</option>
               {salesOrders.map((order) => <option key={order.id} value={order.id}>{order.so_number} — {order.customer?.name}</option>)}
             </select>
           </div>
           <div>
             <label className="label">Create from Quotation</label>
-            <select className="input" value={quotationId} onChange={(e) => void selectQuotation(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))} required={!salesOrderId}>
+            <select className="input" value={quotationId} onChange={(e) => void selectQuotation(e.target.value)} disabled={editing || Boolean(editingId && !["draft", "reviewed"].includes(editingStatus))}>
               <option value="">Select a quotation</option>
               {quotations.map((quotation) => <option key={quotation.id} value={quotation.id}>{quotation.quo_number} — {quotation.customer?.name}</option>)}
             </select>
           </div>
         </div>
-        {!editing && <p className="-mt-3 text-xs text-ink-500">Select exactly one source document. Its customer and line items will be copied into the invoice.</p>}
+        {!editing && <p className="-mt-3 text-xs text-ink-500">A Sales Order or Quotation is optional. If selected, its customer and line items will be copied into the invoice.</p>}
 
         <div>
           <label className="label">Supporting documents / PO (optional)</label>
@@ -356,7 +356,7 @@ export default function NewInvoicePage() {
         </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <button type="submit" className="btn-primary w-full" disabled={loading || !customerId || (!editingId && (!salesOrderId && !quotationId)) || Boolean(salesOrderId && quotationId) || !lines.some((line) => line.description.trim())}>
+        <button type="submit" className="btn-primary w-full" disabled={loading || !customerId || Boolean(salesOrderId && quotationId) || !lines.some((line) => line.description.trim())}>
           {loading ? "Saving…" : editing ? "Save Invoice Changes" : "Save Draft Invoice"}
         </button>
       </form>
