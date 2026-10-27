@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -23,6 +23,8 @@ export default function InvoiceDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<any[]>([]);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [deliveryChallanOpen, setDeliveryChallanOpen] = useState(false);
+  const deliveryChallanFrame = useRef<HTMLIFrameElement>(null);
   const [emailSending, setEmailSending] = useState(false);
   const [emailMessage, setEmailMessage] = useState<string | null>(null);
   const [sendCopy, setSendCopy] = useState(false);
@@ -258,6 +260,7 @@ export default function InvoiceDetailPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex flex-wrap gap-3">
+          <button type="button" className="btn-secondary flex-1" onClick={() => setDeliveryChallanOpen(true)}>Print Delivery Challan</button>
           <button type="button" className="btn-secondary flex-1" onClick={() => { setEmailMessage(null); setReviewOpen(true); }}>Review Sales Invoice Mail</button>
           {data.canEdit && data.invoice.status === "draft" && (
             <>
@@ -346,6 +349,20 @@ export default function InvoiceDetailPage() {
               <label className="mt-3 flex items-start gap-2 text-sm text-ink-700"><input type="checkbox" checked={sendCopy} onChange={(event) => setSendCopy(event.target.checked)} className="mt-0.5" /><span>Send a copy to me<span className="block text-xs text-ink-500">The copy will be sent by BCC to your signed-in email address.</span></span></label>
               <div className="mt-4 flex justify-end"><button type="button" className="btn-primary" disabled={emailSending} onClick={() => void sendSalesInvoiceEmail()}>{emailSending ? "Sending…" : "Send Sales Invoice Mail"}</button></div>
             </div>
+          </div>
+        </div>
+      )}
+      {deliveryChallanOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-900/50 p-4 md:p-8" role="dialog" aria-modal="true" aria-label="Delivery Challan preview">
+          <div className="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-ink-100 px-6 py-4">
+              <div><h2 className="text-lg font-semibold text-ink-900">Print Delivery Challan</h2><p className="text-sm text-ink-500">Review the challan before printing.</p></div>
+              <div className="flex gap-2">
+                <button type="button" className="btn-primary" onClick={() => deliveryChallanFrame.current?.contentWindow?.print()}>Print / Save as PDF</button>
+                <button type="button" className="btn-secondary" onClick={() => setDeliveryChallanOpen(false)}>Close</button>
+              </div>
+            </div>
+            <iframe ref={deliveryChallanFrame} title="Delivery Challan preview" src={`/print/delivery-challan/${data.invoice.id}?embedded=1`} className="min-h-0 flex-1 border-0" />
           </div>
         </div>
       )}
