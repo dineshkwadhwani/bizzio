@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireRole } from "@/lib/auth-guard";
-import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
+import { effectiveToggles, hasPermission, moduleEnabled } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +42,7 @@ export async function POST(request: Request, { params }: { params: { leadId: str
   );
   const { data: company } = await supabase.from("companies").select("plan_id").eq("id", employee.company_id).maybeSingle();
   const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
-  if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !toggles.submit_dcr) return NextResponse.json({ error: "DCR access is not enabled for this employee" }, { status: 403 });
+  if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !hasPermission(toggles, "submit_dcr")) return NextResponse.json({ error: "DCR access is not enabled for this employee" }, { status: 403 });
 
   const { data: lead } = await supabase
     .from("dcr_leads")

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
+import { randomUUID } from "crypto";
 import { requireRole } from "@/lib/auth-guard";
-import { effectiveToggles, moduleEnabled } from "@/lib/permissions";
+import { effectiveToggles, hasPermission, moduleEnabled } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -43,8 +44,8 @@ async function getDcrEmployee(userId: string) {
   const { data: plan } = company?.plan_id
     ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle()
     : { data: null };
-  if (!plan?.is_active || !moduleEnabled((plan.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !toggles.submit_dcr) {
-    return { supabase, employee: null, error: "DCR access is not enabled for this employee" };
+  if (!plan?.is_active || !moduleEnabled((plan.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !hasPermission(toggles, "manage_leads")) {
+    return { supabase, employee: null, error: "Leads access is not enabled for this employee" };
   }
   return { supabase, employee, error: null };
 }
@@ -56,7 +57,7 @@ export async function GET() {
     if (!access.employee) return NextResponse.json({ error: access.error }, { status: 403 });
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["customer_name", "contact_person", "contact_phone", "status", "next_followup_date"]
+      ["customer_name", "contact_person", "contact_phone", "interaction_type", "purpose", "comment", "status", "next_followup_date"]
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, "DCR Leads");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
@@ -64,6 +65,9 @@ export async function GET() {
       ["customer_name", "Required: customer or prospect name"],
       ["contact_person", "Optional contact person"],
       ["contact_phone", "Optional contact phone number"],
+      ["interaction_type", "Optional: personal, phone, or chat; defaults to phone"],
+      ["purpose", "Optional purpose of the call"],
+      ["comment", "Optional notes from the call"],
       ["status", "Optional: new, contacted, interested, negotiation, converted, or lost"],
       ["next_followup_date", "Optional date in YYYY-MM-DD format"]
     ]), "Instructions");
@@ -106,7 +110,8 @@ export async function POST(request: Request) {
     result[normalizeHeader(key)] = key;
     return result;
   }, {});
-  if (!headers.customer_name) return NextResponse.json({ error: "The required customer_name column is missing." }, { status: 400 });
+  const missingHeaders = ["customer_name"].filter((key) => !headers[key]);
+  if (missingHeaders.length) return NextResponse.json({ error: `Required columns are missing: ${missingHeaders.join(", ")}.` }, { status: 400 });
 
   const errors: string[] = [];
   const leads = rows.map((row, index) => {
@@ -114,24 +119,44 @@ export async function POST(request: Request) {
     const customerName = String(row[headers.customer_name] ?? "").trim();
     const contactPerson = headers.contact_person ? String(row[headers.contact_person] ?? "").trim() : "";
     const contactPhone = headers.contact_phone ? String(row[headers.contact_phone] ?? "").trim() : "";
+    const interactionType = headers.interaction_type ? String(row[headers.interaction_type] ?? "").trim().toLowerCase() || "phone" : "phone";
+    const purpose = headers.purpose ? String(row[headers.purpose] ?? "").trim() : "Bulk uploaded DCR";
+    const comment = headers.comment ? String(row[headers.comment] ?? "").trim() : "Bulk uploaded DCR entry";
     const status = headers.status ? String(row[headers.status] ?? "").trim().toLowerCase() || "new" : "new";
     const followup = headers.next_followup_date ? parseDate(row[headers.next_followup_date]) : null;
     if (!customerName) errors.push(`Row ${rowNumber}: customer_name is required.`);
+    if (!["personal", "phone", "chat"].includes(interactionType)) errors.push(`Row ${rowNumber}: invalid interaction_type "${interactionType}".`);
+    if (!purpose) errors.push(`Row ${rowNumber}: purpose cannot be blank.`);
+    if (!comment) errors.push(`Row ${rowNumber}: comment cannot be blank.`);
     if (!statuses.has(status)) errors.push(`Row ${rowNumber}: invalid status "${status}".`);
     if (headers.next_followup_date && String(row[headers.next_followup_date] ?? "").trim() && !followup) errors.push(`Row ${rowNumber}: next_followup_date is invalid.`);
     return {
+      id: randomUUID(),
       company_id: access.employee!.company_id,
       employee_id: access.employee!.id,
       customer_name: customerName,
       contact_person: contactPerson || null,
       contact_phone: contactPhone || null,
+      interaction_type: interactionType,
+      purpose,
+      comment,
       status,
       next_followup_date: followup
     };
   });
   if (errors.length) return NextResponse.json({ error: "The upload contains invalid rows.", details: errors.slice(0, 50) }, { status: 400 });
 
-  const { data, error } = await access.supabase.from("dcr_leads").insert(leads).select("id");
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ created: data?.length ?? leads.length });
+  const { error: leadError } = await access.supabase.from("dcr_leads").insert(leads.map(({ interaction_type, purpose, comment, ...lead }) => lead));
+  if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
+  const { error: interactionError } = await access.supabase.from("dcr_interactions").insert(leads.map((lead) => ({
+    lead_id: lead.id,
+    company_id: lead.company_id,
+    employee_id: lead.employee_id,
+    interaction_at: new Date().toISOString(),
+    purpose: lead.purpose,
+    interaction_type: lead.interaction_type,
+    comment: lead.comment
+  })));
+  if (interactionError) return NextResponse.json({ error: interactionError.message }, { status: 500 });
+  return NextResponse.json({ created: leads.length });
 }

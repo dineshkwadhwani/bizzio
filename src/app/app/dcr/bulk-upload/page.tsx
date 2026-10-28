@@ -33,7 +33,7 @@ export default function DcrBulkUploadPage() {
     <div className="max-w-3xl">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link href="/app/dcr" className="text-sm text-brand-600 hover:underline">← Back to Leads</Link>
+          <Link href="/app/leads" className="text-sm text-brand-600 hover:underline">← Back to Leads</Link>
           <h1 className="mt-2 text-2xl font-bold text-ink-900">Bulk Upload DCR Leads</h1>
           <p className="mt-1 text-sm text-ink-500">Download the template, fill in the lead details, and upload it to create all rows together.</p>
         </div>
@@ -43,7 +43,7 @@ export default function DcrBulkUploadPage() {
       <form onSubmit={upload} className="card mt-6 space-y-5">
         <div className="rounded-lg bg-ink-50 p-4 text-sm text-ink-600">
           <p className="font-semibold text-ink-800">Template columns</p>
-          <p className="mt-1">customer_name is required. Contact person, phone, status, and next follow-up date are optional. Use YYYY-MM-DD for dates.</p>
+          <p className="mt-1">customer_name is required. Contact details, interaction details, status, and next follow-up date are optional. The interaction timestamp is recorded when the upload is processed.</p>
         </div>
         <label className="block">
           <span className="label">Excel file</span>

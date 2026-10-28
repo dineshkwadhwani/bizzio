@@ -68,7 +68,7 @@ export default function DcrPage() {
     setCustomerName("");
     setContactPerson("");
     setContactPhone("");
-    router.push("/app/dcr");
+    router.push("/app/leads");
     router.refresh();
   }
 
@@ -76,12 +76,11 @@ export default function DcrPage() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-ink-900">Daily Call Report</h1>
-          <p className="mt-1 text-sm text-ink-500">Customer and lead history by salesperson.</p>
+          <h1 className="text-2xl font-bold text-ink-900">Leads</h1>
+          <p className="mt-1 text-sm text-ink-500">Create and manage your sales leads.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/app/dcr/bulk-upload" className="btn-secondary"><Upload size={16} className="mr-2" /> Bulk Upload</Link>
-          <Link href="/app/dcr/daily" className="btn-secondary">Daily View</Link>
         </div>
       </div>
 

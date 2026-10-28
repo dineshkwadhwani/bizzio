@@ -198,14 +198,10 @@ export default async function EmployeeAppLayout({
   if (
     moduleEnabled(featureBundle, "dcr") &&
     hasCapability(employee, "sales") &&
-    hasPermission(toggles, "submit_dcr")
+    (hasPermission(toggles, "manage_leads") || hasPermission(toggles, "submit_dcr"))
   ) {
-    nav.push({
-      href: "/app/dcr",
-      label: "DCR",
-      icon: "PhoneCall",
-      section: "Activities",
-    });
+    if (hasPermission(toggles, "manage_leads")) nav.push({ href: "/app/leads", label: "Leads", icon: "Users", section: "Sales" });
+    if (hasPermission(toggles, "submit_dcr")) nav.push({ href: "/app/dcr/create", label: "DCR", icon: "PhoneCall", section: "Activities" });
   }
   const canApprove =
     ["manager", "director"].includes(employee?.hierarchy_role ?? "") &&

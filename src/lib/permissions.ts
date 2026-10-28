@@ -32,8 +32,9 @@ export const PERMISSION_GROUPS = [
   {
     area: "Sales",
     permissions: [
+      ["manage_leads", "Leads"],
       ["sales_quotations", "Quotations"],
-      ["submit_dcr", "Submit DCR"],
+      ["submit_dcr", "DCR"],
     ],
   },
   {
