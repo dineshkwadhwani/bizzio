@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Plus, Upload } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
 type Lead = {
@@ -25,6 +26,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default function DcrPage() {
+  const router = useRouter();
   const [customerName, setCustomerName] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [contactPhone, setContactPhone] = useState("");
@@ -66,7 +68,8 @@ export default function DcrPage() {
     setCustomerName("");
     setContactPerson("");
     setContactPhone("");
-    load();
+    router.push("/app/dcr");
+    router.refresh();
   }
 
   return (
@@ -76,7 +79,10 @@ export default function DcrPage() {
           <h1 className="text-2xl font-bold text-ink-900">Daily Call Report</h1>
           <p className="mt-1 text-sm text-ink-500">Customer and lead history by salesperson.</p>
         </div>
-        <Link href="/app/dcr/daily" className="btn-secondary">Daily View</Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/app/dcr/bulk-upload" className="btn-secondary"><Upload size={16} className="mr-2" /> Bulk Upload</Link>
+          <Link href="/app/dcr/daily" className="btn-secondary">Daily View</Link>
+        </div>
       </div>
 
       <form onSubmit={addLead} className="card mt-6 grid gap-3 sm:grid-cols-2">

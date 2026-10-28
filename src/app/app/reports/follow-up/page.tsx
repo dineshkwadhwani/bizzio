@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { effectiveToggles, hasPermission, moduleEnabled } from "@/lib/permissions";
+import { formatDate } from "@/lib/utils";
 
 export const revalidate = 0;
 
 const STATUSES = ["new", "contacted", "interested", "negotiation", "converted", "lost"] as const;
 
-type SearchParams = { from?: string; to?: string; status?: string; employee?: string };
+type SearchParams = { from?: string; to?: string; status?: string; employee?: string; followup?: string };
 
 function isoDate(date: Date) {
   return date.toISOString().slice(0, 10);
@@ -83,6 +84,7 @@ export default async function PipelineReportPage({ searchParams }: { searchParam
   const to = searchParams.to || today;
   const status = STATUSES.includes(searchParams.status as typeof STATUSES[number]) ? searchParams.status! : "all";
   const selectedEmployee = searchParams.employee || "all";
+  const followupDate = searchParams.followup || "";
   const { employeeIds, salesExecutives } = await getReportScope(supabase, employee);
   const queryEmployeeIds = selectedEmployee !== "all" && employeeIds.includes(selectedEmployee) ? [selectedEmployee] : employeeIds;
 
@@ -99,7 +101,7 @@ export default async function PipelineReportPage({ searchParams }: { searchParam
 
   const rows = (interactions ?? []).filter((row: any) => {
     const lead = Array.isArray(row.dcr_leads) ? row.dcr_leads[0] : row.dcr_leads;
-    return status === "all" || lead?.status === status;
+    return (status === "all" || lead?.status === status) && (!followupDate || lead?.next_followup_date === followupDate);
   });
   const pipelineRows = interactions ?? [];
   const getLeadStatus = (row: any) => {
@@ -132,17 +134,18 @@ export default async function PipelineReportPage({ searchParams }: { searchParam
         ))}
       </div>
 
-      <form method="get" className="card mt-6 grid gap-4 md:grid-cols-4">
+      <form method="get" className="card mt-6 grid gap-4 md:grid-cols-5">
         <label className="space-y-2"><span className="text-sm font-medium text-ink-700">From</span><input type="date" name="from" className="input" value={from} /></label>
         <label className="space-y-2"><span className="text-sm font-medium text-ink-700">To</span><input type="date" name="to" className="input" value={to} /></label>
+        <label className="space-y-2"><span className="text-sm font-medium text-ink-700">Follow-up date</span><input type="date" name="followup" className="input" value={followupDate} /></label>
         <label className="space-y-2"><span className="text-sm font-medium text-ink-700">Lead status</span><select name="status" className="input" defaultValue={status}><option value="all">All statuses</option>{STATUSES.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label className="space-y-2"><span className="text-sm font-medium text-ink-700">Sales executive</span><select name="employee" className="input" defaultValue={selectedEmployee}><option value="all">All available executives</option>{salesExecutives.map((item: any) => <option key={item.id} value={item.id}>{employeeName(item)}</option>)}</select></label>
-        <div className="md:col-span-4 flex flex-wrap gap-2"><button className="btn-primary">Apply filters</button><Link href="/app/reports/follow-up" className="btn-secondary">Reset</Link></div>
+        <div className="md:col-span-5 flex flex-wrap gap-2"><button className="btn-primary">Apply filters</button><Link href="/app/reports/follow-up" className="btn-secondary">Reset</Link></div>
       </form>
 
       {error && <p className="mt-4 text-sm text-red-600">Could not load the report: {error.message}</p>}
       <div className="card mt-6 overflow-hidden p-0">
-        <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Sales executive</th><th className="px-4 py-3">Customer / lead</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Purpose</th><th className="px-4 py-3">Comment</th></tr></thead><tbody className="divide-y divide-ink-100">{rows.map((row: any) => { const rowEmployee = Array.isArray(row.employees) ? row.employees[0] : row.employees; const lead = Array.isArray(row.dcr_leads) ? row.dcr_leads[0] : row.dcr_leads; return <tr key={row.id} className="align-top"><td className="whitespace-nowrap px-4 py-3 text-ink-600">{new Date(row.interaction_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</td><td className="px-4 py-3 text-ink-800">{rowEmployee ? employeeName(rowEmployee) : "—"}</td><td className="px-4 py-3"><Link href={`/app/dcr/${row.lead_id}`} className="text-brand-600 hover:underline">{lead?.customer_name ?? "Lead"}</Link>{lead?.next_followup_date && <p className="mt-1 text-xs text-ink-400">Next: {lead.next_followup_date}</p>}</td><td className="px-4 py-3"><span className="badge bg-ink-100 text-ink-600">{lead?.status ?? "—"}</span></td><td className="px-4 py-3 text-ink-600">{row.interaction_type}</td><td className="px-4 py-3 text-ink-700">{row.purpose || "—"}</td><td className="max-w-xs whitespace-pre-wrap px-4 py-3 text-ink-700">{row.comment || "—"}</td></tr>; })}{!rows.length && <tr><td colSpan={7} className="px-4 py-10 text-center text-ink-400">No DCR entries match the selected filters.</td></tr>}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-ink-50 text-xs uppercase tracking-wide text-ink-500"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Sales executive</th><th className="px-4 py-3">Customer / lead</th><th className="px-4 py-3">Follow-up date</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Purpose</th><th className="px-4 py-3">Comment</th></tr></thead><tbody className="divide-y divide-ink-100">{rows.map((row: any) => { const rowEmployee = Array.isArray(row.employees) ? row.employees[0] : row.employees; const lead = Array.isArray(row.dcr_leads) ? row.dcr_leads[0] : row.dcr_leads; return <tr key={row.id} className="align-top"><td className="whitespace-nowrap px-4 py-3 text-ink-600">{new Date(row.interaction_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</td><td className="px-4 py-3 text-ink-800">{rowEmployee ? employeeName(rowEmployee) : "—"}</td><td className="px-4 py-3"><Link href={`/app/dcr/${row.lead_id}`} className="text-brand-600 hover:underline">{lead?.customer_name ?? "Lead"}</Link></td><td className="whitespace-nowrap px-4 py-3 text-ink-600">{lead?.next_followup_date ? formatDate(lead.next_followup_date) : "—"}</td><td className="px-4 py-3"><span className="badge bg-ink-100 text-ink-600">{lead?.status ?? "—"}</span></td><td className="px-4 py-3 text-ink-600">{row.interaction_type}</td><td className="px-4 py-3 text-ink-700">{row.purpose || "—"}</td><td className="max-w-xs whitespace-pre-wrap px-4 py-3 text-ink-700">{row.comment || "—"}</td></tr>; })}{!rows.length && <tr><td colSpan={8} className="px-4 py-10 text-center text-ink-400">No DCR entries match the selected filters.</td></tr>}</tbody></table></div>
       </div>
     </div>
   );
