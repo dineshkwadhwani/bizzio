@@ -2,6 +2,7 @@ import {
   LayoutDashboard, Users, User, Building2, Tags, ShieldCheck, CalendarDays,
   Plane, Receipt, BookOpen, GitBranch, Image as ImageIcon, BarChart3, Mail
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { DashboardShell, type DashboardIdentity, type NavItem } from "@/components/layout/DashboardShell";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,8 +35,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     user ? supabase.from("employees").select("name, email").eq("user_id", user.id).maybeSingle() : Promise.resolve({ data: null })
   ]);
   const { data: companyPlan } = profile?.company_id
-    ? await supabase.from("companies").select("subscription_plans(feature_bundle)").eq("id", profile.company_id).maybeSingle()
+    ? await supabase.from("companies").select("status, subscription_plans(feature_bundle)").eq("id", profile.company_id).maybeSingle()
     : { data: null };
+  if (user && companyPlan?.status !== "active") redirect("/login?company_inactive=1");
   const bundle = (companyPlan?.subscription_plans as { feature_bundle?: Record<string, boolean> } | null)?.feature_bundle ?? {};
   const customEmailEnabled = bundle.custom_email_domain === true;
   const navItems = [...(bundle.payroll === true ? [{ href: "/admin/payroll", label: "Configure Salary", icon: "Receipt", section: "Configuration" } as NavItem] : []), ...(customEmailEnabled ? NAV : NAV.filter((item) => item.href !== "/admin/email-settings"))];

@@ -26,6 +26,8 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const day = url.searchParams.get("day");
+  const allLeads = url.searchParams.get("scope") === "all";
+  const search = url.searchParams.get("q")?.trim() ?? "";
 
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -62,14 +64,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ interactions: interactions ?? [] });
   }
 
-  const { data: leads } = await supabase
-    .from("dcr_leads")
-    .select("*, projects(id, name), dcr_interactions(*)")
-    .eq("employee_id", employee.id)
-    .order("updated_at", { ascending: false });
+  const canViewAllLeads = hasPermission(toggles, "view_all_leads");
+  let leadQuery = supabase.from("dcr_leads").select("*, projects(id, name), dcr_interactions(*)").eq("company_id", employee.company_id);
+  if (!allLeads || !canViewAllLeads) leadQuery = leadQuery.eq("employee_id", employee.id);
+  if (search) leadQuery = leadQuery.ilike("customer_name", `%${search}%`);
+  const { data: leads } = await leadQuery.order("updated_at", { ascending: false });
 
   const { data: projects } = await supabase.from("projects").select("id, name").eq("company_id", employee.company_id).eq("is_active", true).order("name");
-  return NextResponse.json({ leads: leads ?? [], projects: projects ?? [] });
+  return NextResponse.json({ leads: leads ?? [], projects: projects ?? [], can_view_all_leads: canViewAllLeads });
 }
 
 export async function POST(request: Request) {

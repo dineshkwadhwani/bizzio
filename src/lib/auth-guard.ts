@@ -18,6 +18,15 @@ export async function requireRole(...roles: Array<"superadmin" | "company_admin"
     throw new Response("Forbidden", { status: 403 });
   }
 
+  if (profile.role !== "superadmin" && profile.company_id) {
+    const { data: company } = await supabase
+      .from("companies")
+      .select("status")
+      .eq("id", profile.company_id)
+      .maybeSingle();
+    if (company?.status !== "active") throw new Response("Company account is not active", { status: 403 });
+  }
+
   if (profile.role === "employee") {
     const { data: employee } = await supabase
       .from("employees")

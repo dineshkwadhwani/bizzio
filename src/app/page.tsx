@@ -6,6 +6,33 @@ import {
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { RecoveryRedirect } from "@/components/auth/RecoveryRedirect";
+import { createClient } from "@/lib/supabase/server";
+import { formatINR } from "@/lib/utils";
+
+const PLAN_FEATURES: Record<string, string> = {
+  attendance_tracking: "Attendance tracking",
+  leave_management: "Leave management",
+  timesheet: "Project timesheets",
+  dcr: "Daily Call Report and lead tracking",
+  expense_reimbursement: "Expense reimbursement",
+  accounting_vendor_po: "Vendors and purchase orders",
+  accounting_customer_invoice: "Quotations, sales orders, and invoices",
+  gst_support: "GST-ready billing",
+  bank_statement_import: "Bank statement import",
+  custom_email_domain: "Custom email domain",
+  payroll: "Payroll configuration",
+  hr: "HR foundation",
+  expense: "Expense workflows",
+  finance: "Finance and accounting",
+  timesheets: "Timesheets",
+};
+
+const PLAN_DESCRIPTIONS: Record<string, string> = {
+  basic: "The essential operating foundation for a small team.",
+  advanced: "More control over expenses and approvals as your team grows.",
+  pro: "Connected sales and finance workflows for ambitious businesses.",
+  promax: "Complete business-wide control for multi-team operations.",
+};
 
 const FEATURES = [
   {
@@ -47,7 +74,13 @@ const STEPS = [
   { n: "04", title: "Go Live", desc: "Your whole team starts using Bizzio the same day." }
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const supabase = createClient();
+  const { data: plans } = await supabase
+    .from("subscription_plans")
+    .select("id, name, offer_price, original_price, is_active, feature_bundle")
+    .order("offer_price", { ascending: true });
+
   return (
     <>
       <RecoveryRedirect />
@@ -135,56 +168,37 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Pricing teaser */}
+        {/* Pricing */}
         <section id="pricing" className="bg-white py-20">
-          <div className="mx-auto max-w-5xl px-4 sm:px-6">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold text-ink-900">
-              Simple, transparent pricing
+              Four packages. One clear path forward.
             </h2>
             <p className="mt-3 text-center text-ink-600">
-              More features are coming to Pro over time.
+              Start with what your business needs today and add capability as you grow.
             </p>
-            <div className="mt-12 grid gap-6 sm:grid-cols-2">
-              {/* Basic */}
-              <div className="card">
-                <span className="badge bg-pastel-mint text-ink-800">FREE</span>
-                <h3 className="mt-3 text-xl font-bold text-ink-900">Basic</h3>
-                <p className="mt-1">
-                  <span className="text-3xl font-extrabold text-ink-900">₹0</span>
-                  <span className="ml-2 text-sm text-ink-400 line-through">₹1999/year</span>
-                </p>
-                <ul className="mt-6 space-y-3 text-sm text-ink-600">
-                  {["Attendance Tracking", "Daily Reporting (DCR/Timesheet)", "Leave Management", "Expense Reimbursement"].map((i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <Check size={16} className="mt-0.5 text-brand-500" /> {i}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register?plan=basic" className="btn-secondary mt-8 w-full">
-                  Get Started Free
-                </Link>
-              </div>
-
-              {/* Pro */}
-              <div className="card border-2 border-brand-400">
-                <span className="badge bg-brand-100 text-brand-700">OFFER</span>
-                <h3 className="mt-3 text-xl font-bold text-ink-900">Pro</h3>
-                <p className="mt-1">
-                  <span className="text-3xl font-extrabold text-ink-900">₹1999</span>
-                  <span className="text-sm text-ink-500">/year</span>
-                  <span className="ml-2 text-sm text-ink-400 line-through">₹4999</span>
-                </p>
-                <ul className="mt-6 space-y-3 text-sm text-ink-600">
-                  {["Everything in Basic", "Vendor & Customer Management", "Quotation → SO → Invoice", "GST-ready billing", "Balance Sheet & P&L"].map((i) => (
-                    <li key={i} className="flex items-start gap-2">
-                      <Check size={16} className="mt-0.5 text-brand-500" /> {i}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/register?plan=pro" className="btn-primary mt-8 w-full">
-                  Start with Pro
-                </Link>
-              </div>
+            <div className="mt-12 grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+              {(plans ?? []).map((plan: any, index: number) => {
+                const name = String(plan.name ?? "");
+                const key = name.toLowerCase().replace(/\s+/g, "");
+                const features = Object.entries(plan.feature_bundle ?? {})
+                  .filter(([, enabled]) => enabled === true)
+                  .map(([feature]) => PLAN_FEATURES[feature] ?? feature.replaceAll("_", " "));
+                const featured = key === "pro" || key === "promax";
+                return <div key={plan.id} className={`card relative flex flex-col ${featured ? "border-2 border-brand-400 shadow-lg" : "border border-ink-100"} ${!plan.is_active ? "opacity-70" : ""}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`badge ${index === 0 ? "bg-pastel-mint text-ink-800" : featured ? "bg-brand-100 text-brand-700" : "bg-pastel-sky text-ink-700"}`}>{index === 0 ? "START HERE" : featured ? "POPULAR" : "GROWING TEAM"}</span>
+                    {!plan.is_active && <span className="badge bg-ink-100 text-ink-500">Coming soon</span>}
+                  </div>
+                  <h3 className="mt-4 text-xl font-bold text-ink-900">{name}</h3>
+                  <p className="mt-2 min-h-12 text-sm text-ink-600">{PLAN_DESCRIPTIONS[key] ?? "A flexible package for your business."}</p>
+                  <p className="mt-4"><span className="text-3xl font-extrabold text-ink-900">{Number(plan.offer_price) === 0 ? "Free" : formatINR(plan.offer_price)}</span>{Number(plan.offer_price) > 0 && <span className="text-sm text-ink-500">/year</span>}{Number(plan.original_price) > Number(plan.offer_price) && <span className="ml-2 text-sm text-ink-400 line-through">{formatINR(plan.original_price)}</span>}</p>
+                  <div className="my-5 border-t border-ink-100" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-500">What&apos;s included</p>
+                  <ul className="mt-4 flex-1 space-y-3 text-sm text-ink-600">{features.map((feature) => <li key={feature} className="flex items-start gap-2"><Check size={16} className="mt-0.5 shrink-0 text-brand-500" />{feature}</li>)}</ul>
+                  {plan.is_active ? <Link href={`/register?plan=${plan.id}`} className={`${featured ? "btn-primary" : "btn-secondary"} mt-8 w-full`}>{Number(plan.offer_price) === 0 ? "Get Started Free" : `Choose ${name}`}</Link> : <button disabled className="btn-secondary mt-8 w-full">Coming Soon</button>}
+                </div>;
+              })}
             </div>
           </div>
         </section>

@@ -41,7 +41,7 @@ function LoginForm() {
 
       const { data: profile, error: profileError } = await supabase
         .from("users")
-        .select("role, status")
+        .select("role, status, company_id")
         .eq("id", data.user.id)
         .single();
 
@@ -54,6 +54,21 @@ function LoginForm() {
         setError("This account has been disabled. Contact your administrator.");
         await supabase.auth.signOut();
         return;
+      }
+
+      if (profile.role !== "superadmin" && profile.company_id) {
+        const { data: company } = await supabase
+          .from("companies")
+          .select("status")
+          .eq("id", profile.company_id)
+          .maybeSingle();
+        if (company?.status !== "active") {
+          await supabase.auth.signOut();
+          setError(company?.status === "pending" || company?.status === "payment_pending"
+            ? "Your company registration is currently under review by our platform team. Please check again within 24 hours. You’ll be able to sign in once your registration has been approved."
+            : "Your company account is not active. Please contact platform support.");
+          return;
+        }
       }
 
       const redirectTo = params.get("redirectTo");
@@ -90,6 +105,11 @@ function LoginForm() {
         {params.get("disabled") && (
           <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
             This account has been disabled. Contact your administrator.
+          </p>
+        )}
+        {params.get("company_inactive") && (
+          <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Your company registration is currently under review by our platform team. Please check again within 24 hours. You’ll be able to sign in once your registration has been approved.
           </p>
         )}
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HowItWorksModal } from "@/components/layout/HowItWorksModal";
 
 export function SiteFooter() {
   return (
@@ -21,6 +22,7 @@ export function SiteFooter() {
           <ul className="mt-3 space-y-2 text-sm text-ink-500">
             <li><Link href="/" className="hover:text-brand-600">Home</Link></li>
             <li><Link href="/#features" className="hover:text-brand-600">Features</Link></li>
+            <li><HowItWorksModal /></li>
             <li><Link href="/pricing" className="hover:text-brand-600">Pricing</Link></li>
             <li><Link href="/about-us" className="hover:text-brand-600">About Us</Link></li>
             <li><Link href="/contact-us" className="hover:text-brand-600">Contact Us</Link></li>

@@ -35,18 +35,25 @@ export default function DcrPage() {
   const [projectId, setProjectId] = useState("");
   const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [scope, setScope] = useState<"mine" | "all">("mine");
+  const [search, setSearch] = useState("");
+  const [canViewAllLeads, setCanViewAllLeads] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    const res = await fetch("/api/app/dcr");
+  async function load(nextScope = scope, nextSearch = search) {
+    const params = new URLSearchParams();
+    if (nextScope === "all") params.set("scope", "all");
+    if (nextSearch.trim()) params.set("q", nextSearch.trim());
+    const res = await fetch(`/api/app/dcr${params.toString() ? `?${params.toString()}` : ""}`);
     const json = await res.json();
     if (!res.ok) return setError(json.error ?? "Unable to load leads.");
     setLeads(json.leads ?? []);
     setProjects(json.projects ?? []);
+    setCanViewAllLeads(json.can_view_all_leads === true);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(scope, search); }, [scope, search]);
 
   async function addLead(e: React.FormEvent) {
     e.preventDefault();
@@ -106,8 +113,14 @@ export default function DcrPage() {
 
       <div className="card mt-6 p-0 overflow-hidden">
         <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3 text-sm font-medium text-ink-700">
-          <span>My leads</span>
-          <Link href="/app/dcr/range" className="text-sm font-medium text-brand-600">Range View</Link>
+          <div className="flex items-center gap-4">
+            <button type="button" onClick={() => setScope("mine")} className={scope === "mine" ? "border-b-2 border-brand-500 pb-1 text-brand-600" : "pb-1 text-ink-500"}>My Leads</button>
+            {canViewAllLeads && <button type="button" onClick={() => setScope("all")} className={scope === "all" ? "border-b-2 border-brand-500 pb-1 text-brand-600" : "pb-1 text-ink-500"}>All Leads</button>}
+          </div>
+          <div className="flex items-center gap-3">
+            {canViewAllLeads && scope === "all" && <input className="input h-9 w-56" placeholder="Search leads" value={search} onChange={(e) => setSearch(e.target.value)} />}
+            <Link href="/app/dcr/range" className="text-sm font-medium text-brand-600">Range View</Link>
+          </div>
         </div>
         <div className="divide-y divide-ink-50">
           {leads.map((lead) => (

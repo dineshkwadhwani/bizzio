@@ -11,6 +11,7 @@ import {
   Landmark,
   BarChart3,
 } from "lucide-react";
+import { redirect } from "next/navigation";
 import {
   DashboardShell,
   type DashboardIdentity,
@@ -91,10 +92,11 @@ export default async function EmployeeAppLayout({
   const { data: company } = employee
     ? await supabase
         .from("companies")
-        .select("plan_id")
+        .select("plan_id, status")
         .eq("id", employee.company_id)
         .maybeSingle()
     : { data: null };
+  if (user && company?.status !== "active") redirect("/login?company_inactive=1");
   const { data: plan } = company?.plan_id
     ? await supabase
         .from("subscription_plans")

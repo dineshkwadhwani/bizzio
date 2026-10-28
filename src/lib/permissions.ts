@@ -33,6 +33,7 @@ export const PERMISSION_GROUPS = [
     area: "Sales",
     permissions: [
       ["manage_leads", "Leads"],
+      ["view_all_leads", "View all leads"],
       ["sales_quotations", "Quotations"],
       ["submit_dcr", "DCR"],
     ],
