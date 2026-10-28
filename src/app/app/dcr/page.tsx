@@ -9,6 +9,8 @@ import { formatDate } from "@/lib/utils";
 type Lead = {
   id: string;
   customer_name: string;
+  project_id: string | null;
+  projects?: { name: string } | null;
   contact_person: string | null;
   contact_phone: string | null;
   status: string;
@@ -30,6 +32,8 @@ export default function DcrPage() {
   const [customerName, setCustomerName] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +43,7 @@ export default function DcrPage() {
     const json = await res.json();
     if (!res.ok) return setError(json.error ?? "Unable to load leads.");
     setLeads(json.leads ?? []);
+    setProjects(json.projects ?? []);
   }
 
   useEffect(() => { load(); }, []);
@@ -53,6 +58,7 @@ export default function DcrPage() {
       headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       customer_name: customerName,
+      project_id: projectId,
       contact_person: contactPerson || null,
       contact_phone: contactPhone || null
     })
@@ -68,6 +74,7 @@ export default function DcrPage() {
     setCustomerName("");
     setContactPerson("");
     setContactPhone("");
+    setProjectId("");
     router.push("/app/leads");
     router.refresh();
   }
@@ -86,9 +93,11 @@ export default function DcrPage() {
 
       <form onSubmit={addLead} className="card mt-6 grid gap-3 sm:grid-cols-2">
         <input className="input" placeholder="Customer / prospect name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+        <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} required><option value="">Select project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
         <input className="input" placeholder="Contact person (optional)" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} />
         <input className="input" placeholder="Contact phone number (optional)" value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} inputMode="tel" />
-        <button type="submit" className="btn-primary" disabled={loading}>
+        {projects.length === 0 && <p className="text-sm text-amber-700 sm:col-span-2">No active projects are configured. Ask the Company Admin to add a project first.</p>}
+        <button type="submit" className="btn-primary" disabled={loading || projects.length === 0}>
           <Plus size={16} className="mr-2" /> {loading ? "Saving…" : "Add Lead"}
         </button>
       </form>
@@ -105,6 +114,7 @@ export default function DcrPage() {
             <Link key={lead.id} href={`/app/dcr/${lead.id}`} className="flex items-center justify-between px-4 py-3 text-sm transition hover:bg-ink-50">
               <div>
                 <p className="font-medium text-ink-800">{lead.customer_name}</p>
+                {lead.projects?.name && <p className="text-xs text-brand-600">Project: {lead.projects.name}</p>}
                 {(lead.contact_person || lead.contact_phone) && <p className="text-xs text-ink-500">{[lead.contact_person, lead.contact_phone].filter(Boolean).join(" · ")}</p>}
                 <p className="text-ink-400">Updated {formatDate(lead.updated_at)}</p>
               </div>

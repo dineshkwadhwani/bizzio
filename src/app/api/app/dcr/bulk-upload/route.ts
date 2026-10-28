@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
-import { randomUUID } from "crypto";
 import { requireRole } from "@/lib/auth-guard";
 import { effectiveToggles, hasPermission, moduleEnabled } from "@/lib/permissions";
 import { createClient } from "@/lib/supabase/server";
@@ -57,19 +56,15 @@ export async function GET() {
     if (!access.employee) return NextResponse.json({ error: access.error }, { status: 403 });
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet([
-      ["customer_name", "contact_person", "contact_phone", "interaction_type", "purpose", "comment", "status", "next_followup_date"]
+      ["customer_name", "project_name", "contact_person", "contact_phone"]
     ]);
     XLSX.utils.book_append_sheet(workbook, worksheet, "DCR Leads");
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       ["Column", "Instructions"],
       ["customer_name", "Required: customer or prospect name"],
+      ["project_name", "Required: must match an active project configured by the Company Admin"],
       ["contact_person", "Optional contact person"],
       ["contact_phone", "Optional contact phone number"],
-      ["interaction_type", "Optional: personal, phone, or chat; defaults to phone"],
-      ["purpose", "Optional purpose of the call"],
-      ["comment", "Optional notes from the call"],
-      ["status", "Optional: new, contacted, interested, negotiation, converted, or lost"],
-      ["next_followup_date", "Optional date in YYYY-MM-DD format"]
     ]), "Instructions");
     const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
     return new NextResponse(buffer, {
@@ -110,53 +105,40 @@ export async function POST(request: Request) {
     result[normalizeHeader(key)] = key;
     return result;
   }, {});
-  const missingHeaders = ["customer_name"].filter((key) => !headers[key]);
+  const missingHeaders = ["customer_name", "project_name"].filter((key) => !headers[key]);
   if (missingHeaders.length) return NextResponse.json({ error: `Required columns are missing: ${missingHeaders.join(", ")}.` }, { status: 400 });
 
   const errors: string[] = [];
+  const { data: projects } = await access.supabase.from("projects").select("id, name").eq("company_id", access.employee!.company_id).eq("is_active", true);
+  const projectMap = new Map((projects ?? []).map((project) => [project.name.trim().toLowerCase(), project.id]));
   const leads = rows.map((row, index) => {
     const rowNumber = index + 2;
     const customerName = String(row[headers.customer_name] ?? "").trim();
+    const projectName = String(row[headers.project_name] ?? "").trim();
+    const projectId = projectMap.get(projectName.toLowerCase());
     const contactPerson = headers.contact_person ? String(row[headers.contact_person] ?? "").trim() : "";
     const contactPhone = headers.contact_phone ? String(row[headers.contact_phone] ?? "").trim() : "";
-    const interactionType = headers.interaction_type ? String(row[headers.interaction_type] ?? "").trim().toLowerCase() || "phone" : "phone";
-    const purpose = headers.purpose ? String(row[headers.purpose] ?? "").trim() : "Bulk uploaded DCR";
-    const comment = headers.comment ? String(row[headers.comment] ?? "").trim() : "Bulk uploaded DCR entry";
     const status = headers.status ? String(row[headers.status] ?? "").trim().toLowerCase() || "new" : "new";
     const followup = headers.next_followup_date ? parseDate(row[headers.next_followup_date]) : null;
     if (!customerName) errors.push(`Row ${rowNumber}: customer_name is required.`);
-    if (!["personal", "phone", "chat"].includes(interactionType)) errors.push(`Row ${rowNumber}: invalid interaction_type "${interactionType}".`);
-    if (!purpose) errors.push(`Row ${rowNumber}: purpose cannot be blank.`);
-    if (!comment) errors.push(`Row ${rowNumber}: comment cannot be blank.`);
+    if (!projectName) errors.push(`Row ${rowNumber}: project_name is required.`);
+    else if (!projectId) errors.push(`Row ${rowNumber}: project_name "${projectName}" is not an active configured project.`);
     if (!statuses.has(status)) errors.push(`Row ${rowNumber}: invalid status "${status}".`);
     if (headers.next_followup_date && String(row[headers.next_followup_date] ?? "").trim() && !followup) errors.push(`Row ${rowNumber}: next_followup_date is invalid.`);
     return {
-      id: randomUUID(),
       company_id: access.employee!.company_id,
       employee_id: access.employee!.id,
       customer_name: customerName,
+      project_id: projectId,
       contact_person: contactPerson || null,
       contact_phone: contactPhone || null,
-      interaction_type: interactionType,
-      purpose,
-      comment,
       status,
       next_followup_date: followup
     };
   });
   if (errors.length) return NextResponse.json({ error: "The upload contains invalid rows.", details: errors.slice(0, 50) }, { status: 400 });
 
-  const { error: leadError } = await access.supabase.from("dcr_leads").insert(leads.map(({ interaction_type, purpose, comment, ...lead }) => lead));
+  const { error: leadError } = await access.supabase.from("dcr_leads").insert(leads);
   if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
-  const { error: interactionError } = await access.supabase.from("dcr_interactions").insert(leads.map((lead) => ({
-    lead_id: lead.id,
-    company_id: lead.company_id,
-    employee_id: lead.employee_id,
-    interaction_at: new Date().toISOString(),
-    purpose: lead.purpose,
-    interaction_type: lead.interaction_type,
-    comment: lead.comment
-  })));
-  if (interactionError) return NextResponse.json({ error: interactionError.message }, { status: 500 });
   return NextResponse.json({ created: leads.length });
 }

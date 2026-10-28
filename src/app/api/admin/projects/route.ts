@@ -58,3 +58,36 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ project: data }, { status: 201 });
 }
+
+export async function PATCH(request: Request) {
+  let guard;
+  try { guard = await requireRole("company_admin"); } catch (res) { return res as Response; }
+  const body = await request.json().catch(() => null);
+  const id = typeof body?.id === "string" ? body.id : "";
+  const parsed = ProjectSchema.safeParse(body);
+  if (!id || !parsed.success) return NextResponse.json({ error: "Complete the project details before saving." }, { status: 400 });
+  if (!parsed.data.is_internal && !parsed.data.customer_id) return NextResponse.json({ error: "Select a customer or choose Company itself." }, { status: 400 });
+  if (parsed.data.end_date && parsed.data.end_date < parsed.data.start_date) return NextResponse.json({ error: "End date cannot be before the start date." }, { status: 400 });
+
+  const supabase = createClient();
+  const { data: project } = await supabase.from("projects").select("id").eq("id", id).eq("company_id", guard.profile.company_id).maybeSingle();
+  if (!project) return NextResponse.json({ error: "Project was not found." }, { status: 404 });
+  if (parsed.data.customer_id) {
+    const { data: customer } = await supabase.from("customers").select("id").eq("id", parsed.data.customer_id).eq("company_id", guard.profile.company_id).maybeSingle();
+    if (!customer) return NextResponse.json({ error: "Customer was not found in this company." }, { status: 400 });
+  }
+  if (parsed.data.project_manager_id) {
+    const { data: manager } = await supabase.from("employees").select("id").eq("id", parsed.data.project_manager_id).eq("company_id", guard.profile.company_id).eq("status", "active").maybeSingle();
+    if (!manager) return NextResponse.json({ error: "Project manager was not found in this company." }, { status: 400 });
+  }
+  const { data, error } = await supabase.from("projects").update({
+    name: parsed.data.name,
+    customer_id: parsed.data.is_internal ? null : parsed.data.customer_id,
+    is_internal: parsed.data.is_internal,
+    start_date: parsed.data.start_date,
+    end_date: parsed.data.end_date || null,
+    project_manager_id: parsed.data.project_manager_id || null
+  }).eq("id", id).eq("company_id", guard.profile.company_id).select("*, customer:customers(id, name), project_manager:employees(id, name)").single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ project: data });
+}

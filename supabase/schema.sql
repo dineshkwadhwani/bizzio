@@ -339,6 +339,16 @@ create table timesheet_entries (
   created_at   timestamptz not null default now()
 );
 
+create table products (
+  id                 uuid primary key default gen_random_uuid(),
+  company_id         uuid not null references companies(id) on delete cascade,
+  name               text not null,
+  is_active          boolean not null default true,
+  created_at         timestamptz not null default now()
+);
+create unique index idx_products_company_name on products(company_id, lower(trim(name)));
+create index idx_products_company_active on products(company_id, is_active, name);
+
 create table dcr_leads (
   id                 uuid primary key default gen_random_uuid(),
   company_id         uuid not null references companies(id) on delete cascade,
@@ -346,6 +356,8 @@ create table dcr_leads (
   customer_name      text not null,
   contact_person     text,
   contact_phone      text,
+  product_id         uuid references products(id) on delete restrict,
+  project_id         uuid references projects(id) on delete set null,
   status             dcr_lead_status not null default 'new',
   next_followup_date date,
   created_at         timestamptz not null default now(),

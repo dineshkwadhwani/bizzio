@@ -10,6 +10,7 @@ const leadStatus = ["new", "contacted", "interested", "negotiation", "converted"
 
 const CreateLeadSchema = z.object({
   customer_name: z.string().trim().min(1).max(255),
+  project_id: z.string().uuid(),
   contact_person: z.string().trim().max(255).optional().nullable(),
   contact_phone: z.string().trim().max(50).optional().nullable(),
   status: z.enum(leadStatus).default("new"),
@@ -63,11 +64,12 @@ export async function GET(request: Request) {
 
   const { data: leads } = await supabase
     .from("dcr_leads")
-    .select("*, dcr_interactions(*)")
+    .select("*, projects(id, name), dcr_interactions(*)")
     .eq("employee_id", employee.id)
     .order("updated_at", { ascending: false });
 
-  return NextResponse.json({ leads: leads ?? [] });
+  const { data: projects } = await supabase.from("projects").select("id, name").eq("company_id", employee.company_id).eq("is_active", true).order("name");
+  return NextResponse.json({ leads: leads ?? [], projects: projects ?? [] });
 }
 
 export async function POST(request: Request) {
@@ -100,12 +102,16 @@ export async function POST(request: Request) {
   const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
   if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !hasPermission(toggles, "manage_leads")) return NextResponse.json({ error: "Leads access is not enabled for this employee" }, { status: 403 });
 
+  const { data: project } = await supabase.from("projects").select("id").eq("id", parsed.data.project_id).eq("company_id", employee.company_id).eq("is_active", true).maybeSingle();
+  if (!project) return NextResponse.json({ error: "Select an active project configured by the Company Admin." }, { status: 400 });
+
   const { data: lead, error } = await supabase
     .from("dcr_leads")
     .insert({
       company_id: employee.company_id,
       employee_id: employee.id,
       customer_name: parsed.data.customer_name,
+      project_id: parsed.data.project_id,
       contact_person: parsed.data.contact_person || null,
       contact_phone: parsed.data.contact_phone || null,
       status: parsed.data.status ?? "new",

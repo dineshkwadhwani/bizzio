@@ -43,7 +43,7 @@ export default function DcrBulkUploadPage() {
       <form onSubmit={upload} className="card mt-6 space-y-5">
         <div className="rounded-lg bg-ink-50 p-4 text-sm text-ink-600">
           <p className="font-semibold text-ink-800">Template columns</p>
-          <p className="mt-1">customer_name is required. Contact details, interaction details, status, and next follow-up date are optional. The interaction timestamp is recorded when the upload is processed.</p>
+          <p className="mt-1">customer_name and project_name are required. The project must match an active project configured by the Company Admin. Contact person and phone are optional.</p>
         </div>
         <label className="block">
           <span className="label">Excel file</span>

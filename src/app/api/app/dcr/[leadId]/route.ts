@@ -10,6 +10,7 @@ const leadStatus = ["new", "contacted", "interested", "negotiation", "converted"
 
 const UpdateLeadSchema = z.object({
   customer_name: z.string().trim().min(1).max(255).optional(),
+  project_id: z.string().uuid().optional(),
   contact_person: z.string().trim().max(255).optional().nullable(),
   contact_phone: z.string().trim().max(50).optional().nullable(),
   status: z.enum(leadStatus).optional(),
@@ -44,7 +45,7 @@ export async function GET(_: Request, { params }: { params: { leadId: string } }
 
   const { data: lead } = await supabase
     .from("dcr_leads")
-    .select("*, dcr_interactions(*)")
+    .select("*, projects(id, name), dcr_interactions(*)")
     .eq("id", params.leadId)
     .eq("employee_id", employee.id)
     .single();
@@ -81,8 +82,14 @@ export async function PUT(request: Request, { params }: { params: { leadId: stri
   const { data: plan } = company?.plan_id ? await supabase.from("subscription_plans").select("feature_bundle, is_active").eq("id", company.plan_id).maybeSingle() : { data: null };
   if (!plan?.is_active || !moduleEnabled((plan?.feature_bundle ?? {}) as Record<string, any>, "dcr") || !employee.is_sales || !hasPermission(toggles, "manage_leads")) return NextResponse.json({ error: "Leads access is not enabled for this employee" }, { status: 403 });
 
+  if (parsed.data.project_id) {
+    const { data: project } = await supabase.from("projects").select("id").eq("id", parsed.data.project_id).eq("company_id", employee.company_id).eq("is_active", true).maybeSingle();
+    if (!project) return NextResponse.json({ error: "Select an active configured project." }, { status: 400 });
+  }
+
   const updates: Record<string, any> = {};
   if (parsed.data.customer_name) updates.customer_name = parsed.data.customer_name;
+  if (parsed.data.project_id) updates.project_id = parsed.data.project_id;
   if (parsed.data.contact_person !== undefined) updates.contact_person = parsed.data.contact_person || null;
   if (parsed.data.contact_phone !== undefined) updates.contact_phone = parsed.data.contact_phone || null;
   if (parsed.data.status) updates.status = parsed.data.status;
@@ -97,7 +104,7 @@ export async function PUT(request: Request, { params }: { params: { leadId: stri
     .update(updates)
     .eq("id", params.leadId)
     .eq("employee_id", employee.id)
-    .select("*, dcr_interactions(*)")
+    .select("*, projects(id, name), dcr_interactions(*)")
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -16,6 +16,8 @@ type Interaction = {
 type Lead = {
   id: string;
   customer_name: string;
+  project_id: string | null;
+  projects?: { name: string } | null;
   contact_person: string | null;
   contact_phone: string | null;
   status: string;
@@ -36,6 +38,8 @@ export default function LeadDetailPage() {
   const [nextFollowupDate, setNextFollowupDate] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [contactPhone, setContactPhone] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +56,10 @@ export default function LeadDetailPage() {
     setNextFollowupDate(json.lead.next_followup_date ?? "");
     setContactPerson(json.lead.contact_person ?? "");
     setContactPhone(json.lead.contact_phone ?? "");
+    setProjectId(json.lead.project_id ?? "");
+    const productsResponse = await fetch("/api/app/dcr");
+    const productsJson = await productsResponse.json();
+    setProjects(productsJson.projects ?? []);
   }
 
   useEffect(() => { load(); }, [leadId]);
@@ -66,6 +74,7 @@ export default function LeadDetailPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contact_person: contactPerson || null,
+        project_id: projectId,
         contact_phone: contactPhone || null,
         status,
         next_followup_date: nextFollowupDate || null
@@ -112,6 +121,10 @@ export default function LeadDetailPage() {
 
       <form onSubmit={updateLead} className="card space-y-4">
         <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink-700">Project</span>
+            <select className="input" value={projectId} onChange={(e) => setProjectId(e.target.value)} required><option value="">Select project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select>
+          </label>
           <label className="space-y-2">
             <span className="text-sm font-medium text-ink-700">Contact person</span>
             <input className="input" value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="Primary contact name" />
