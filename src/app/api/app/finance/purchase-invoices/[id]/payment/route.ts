@@ -4,7 +4,7 @@ import { requireFinance } from "@/lib/auth-guard";
 import { createClient } from "@/lib/supabase/server";
 import { findPaymentAccount } from "@/lib/finance-ledger";
 
-const Schema = z.object({ payment_id: z.string().uuid().optional(), payment_mode: z.enum(["cash", "cheque", "bank_transfer"]), reference_number: z.string().optional().or(z.literal("")), amount: z.coerce.number().positive(), rounding_off_amount: z.coerce.number().default(0), paid_at: z.string().date(), attachment_path: z.string().trim().nullable().optional(), attachment_name: z.string().trim().nullable().optional() });
+const Schema = z.object({ payment_id: z.string().uuid().optional(), payment_mode: z.enum(["cash", "cheque", "bank_transfer"]), reference_number: z.string().optional().or(z.literal("")), payment_comment: z.string().trim().max(1000).optional().or(z.literal("")), amount: z.coerce.number().positive(), rounding_off_amount: z.coerce.number().default(0), paid_at: z.string().date(), attachment_path: z.string().trim().nullable().optional(), attachment_name: z.string().trim().nullable().optional() });
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -48,6 +48,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
         purchase_invoice_id: params.id,
         amount: parsed.data.amount,
         rounding_off_amount: roundingOffAmount,
+        payment_comment: parsed.data.payment_comment?.trim() || null,
         paid_at: parsed.data.paid_at
       },
       p_postings: [{

@@ -8,6 +8,7 @@ const ReceiptSchema = z.object({
   invoice_id: z.string().min(1),
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
   reference_number: z.string().optional().or(z.literal("")),
+  payment_comment: z.string().trim().max(1000).optional().or(z.literal("")),
   amount_received: z.coerce.number().positive(),
   tds_amount: z.coerce.number().nonnegative().default(0),
   discount_amount: z.coerce.number().nonnegative().default(0),
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
 
     if (!parsed.data.post_to_ledger) {
       if (!parsed.data.non_posting_comment?.trim()) return NextResponse.json({ error: "A comment is required when the payment is not posted to the ledger." }, { status: 400 });
-      const { data: receipt, error: receiptError } = await supabase.from("receipts").insert({ invoice_id: invoice.id, company_id: companyId, receipt_number: receiptNumber, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number?.trim() || null, amount: balanceDue, amount_received: parsed.data.amount_received, taxable_amount: Number((invoice.base_amount * balanceDue / invoice.total_amount).toFixed(2)), gst_amount: Number((invoice.gst_amount * balanceDue / invoice.total_amount).toFixed(2)), tds_amount: parsed.data.tds_amount, discount_amount: parsed.data.discount_amount, delta_treatment: deltaTreatment, attachment_path: attachmentPath, attachment_name: attachmentName, received_by: guard.employee.id, post_to_ledger: false, non_posting_comment: parsed.data.non_posting_comment.trim() }).select().single();
+      const { data: receipt, error: receiptError } = await supabase.from("receipts").insert({ invoice_id: invoice.id, company_id: companyId, receipt_number: receiptNumber, payment_mode: parsed.data.payment_mode, reference_number: parsed.data.reference_number?.trim() || null, payment_comment: parsed.data.payment_comment?.trim() || null, amount: balanceDue, amount_received: parsed.data.amount_received, taxable_amount: Number((invoice.base_amount * balanceDue / invoice.total_amount).toFixed(2)), gst_amount: Number((invoice.gst_amount * balanceDue / invoice.total_amount).toFixed(2)), tds_amount: parsed.data.tds_amount, discount_amount: parsed.data.discount_amount, delta_treatment: deltaTreatment, attachment_path: attachmentPath, attachment_name: attachmentName, received_by: guard.employee.id, post_to_ledger: false, non_posting_comment: parsed.data.non_posting_comment.trim() }).select().single();
       if (receiptError) return NextResponse.json({ error: receiptError.message }, { status: 500 });
       const { data: updatedInvoice, error: invoiceUpdateError } = await supabase.from("invoices").update({ status: "paid" }).eq("id", invoice.id).eq("company_id", companyId).select().single();
       if (invoiceUpdateError) return NextResponse.json({ error: invoiceUpdateError.message }, { status: 500 });
@@ -98,7 +99,9 @@ export async function POST(request: Request) {
           gst_amount: Number((invoice.gst_amount * balanceDue / invoice.total_amount).toFixed(2)),
           tds_amount: parsed.data.tds_amount,
           discount_amount: parsed.data.discount_amount
-        }]
+        }],
+        payment_comment: parsed.data.payment_comment?.trim() || null,
+        notes: parsed.data.payment_comment?.trim() || null
       },
       p_postings: [{ source_type: "invoice_receipt", source_id: invoice.id, lines }],
       p_attachment_path: attachmentPath,

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function PurchaseInvoiceDetailPage() {
-  const params = useParams(); const [data, setData] = useState<any>(null); const [mode, setMode] = useState("bank_transfer"); const [amount, setAmount] = useState(""); const [roundingOffAmount, setRoundingOffAmount] = useState("0"); const [reference, setReference] = useState(""); const [date, setDate] = useState(new Date().toISOString().slice(0, 10)); const [paymentDocument, setPaymentDocument] = useState<File | null>(null); const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
+  const params = useParams(); const [data, setData] = useState<any>(null); const [mode, setMode] = useState("bank_transfer"); const [amount, setAmount] = useState(""); const [roundingOffAmount, setRoundingOffAmount] = useState("0"); const [reference, setReference] = useState(""); const [paymentComment, setPaymentComment] = useState(""); const [date, setDate] = useState(new Date().toISOString().slice(0, 10)); const [paymentDocument, setPaymentDocument] = useState<File | null>(null); const [error, setError] = useState<string | null>(null); const [saving, setSaving] = useState(false);
   async function load() { const r = await fetch(`/api/app/finance/purchase-invoices/${params.id}`, { cache: "no-store" }); const j = await r.json(); if (r.ok) { setData(j); const paid = (j.payments || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0); setAmount(Math.max(0, Number(j.invoice.total_amount) - paid).toFixed(2)); } else setError(j.error || "Unable to load purchase invoice."); }
   useEffect(() => { if (params.id) void load(); }, [params.id]);
   async function uploadPaymentDocument(file: File, paymentId: string) { const supabase = createClient(); const { data: auth } = await supabase.auth.getUser(); const { data: userRow } = await supabase.from("users").select("company_id").eq("id", auth.user?.id).single(); const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_"); const path = `${userRow?.company_id}/purchase-invoice-payments/${paymentId}-${Date.now()}-${safeName}`; const result = await supabase.storage.from("transaction-documents").upload(path, file, { upsert: false }); if (result.error) throw new Error(result.error.message); return { path: result.data.path, name: file.name }; }
@@ -23,7 +23,7 @@ export default function PurchaseInvoiceDetailPage() {
     try {
       const r = await fetch(`/api/app/finance/purchase-invoices/${params.id}/payment`, {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: controller.signal,
-        body: JSON.stringify({ payment_id: paymentId, payment_mode: mode, amount: Number(amount), rounding_off_amount: Number(roundingOffAmount || 0), reference_number: reference, paid_at: date, attachment_path: document.path, attachment_name: document.name })
+        body: JSON.stringify({ payment_id: paymentId, payment_mode: mode, amount: Number(amount), rounding_off_amount: Number(roundingOffAmount || 0), reference_number: reference, payment_comment: paymentComment, paid_at: date, attachment_path: document.path, attachment_name: document.name })
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {

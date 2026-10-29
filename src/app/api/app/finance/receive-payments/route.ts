@@ -8,6 +8,7 @@ const Schema = z.object({
   receipt_type: z.enum(["invoice", "advance"]).default("invoice"),
   payment_mode: z.enum(["cash", "cheque", "bank_transfer"]),
   reference_number: z.string().trim().optional(),
+  payment_comment: z.string().trim().max(1000).optional().or(z.literal("")),
   attachment_path: z.string().trim().nullable().optional(),
   attachment_name: z.string().trim().nullable().optional(),
   received_at: z.string().date(),
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
         p_reference_number: parsed.data.reference_number || null,
         p_payment_mode: parsed.data.payment_mode,
         p_source_id: advanceId,
-        p_payload: { customer_id: customer.id, account_head_id: advanceAccount.id, amount: parsed.data.amount, received_at: parsed.data.received_at },
+        p_payload: { customer_id: customer.id, account_head_id: advanceAccount.id, amount: parsed.data.amount, received_at: parsed.data.received_at, payment_comment: parsed.data.payment_comment?.trim() || null, notes: parsed.data.payment_comment?.trim() || null },
         p_postings: [{ source_type: "customer_advance", source_id: advanceId, lines: [
           { account_head_id: paymentAccount.id, amount: parsed.data.amount, entry_type: "debit", label: parsed.data.payment_mode === "cash" ? "Cash" : "Bank" },
           { account_head_id: advanceAccount.id, amount: parsed.data.amount, entry_type: "credit", label: "Customer Advance" }
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
         p_reference_number: parsed.data.reference_number || null,
         p_payment_mode: parsed.data.payment_mode,
         p_source_id: null,
-        p_payload: { payer_name: creditAccount.name, account_head_id: creditAccount.id, amount: grossAmount, received_at: parsed.data.received_at },
+        p_payload: { payer_name: creditAccount.name, account_head_id: creditAccount.id, amount: grossAmount, received_at: parsed.data.received_at, payment_comment: parsed.data.payment_comment?.trim() || null, notes: parsed.data.payment_comment?.trim() || null },
         p_postings: [{ source_type: "adhoc_income", lines }],
         p_attachment_path: parsed.data.attachment_path?.trim() || null,
         p_attachment_name: parsed.data.attachment_name?.trim() || null
@@ -168,6 +169,8 @@ export async function POST(request: Request) {
         received_at: `${parsed.data.received_at}T00:00:00Z`,
         payer_name: payerAccount.name,
         payer_account_id: payerAccount.id,
+        payment_comment: parsed.data.payment_comment?.trim() || null,
+        notes: parsed.data.payment_comment?.trim() || null,
         allocations: atomicAllocations
       },
       p_postings: [{ source_type: "invoice_receipt", source_id: invoiceIds[0], lines }],

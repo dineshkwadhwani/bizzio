@@ -19,6 +19,7 @@ export default function ReceivePaymentsPage() {
   const [payerAccount, setPayerAccount] = useState("");
   const [mode, setMode] = useState("bank_transfer");
   const [reference, setReference] = useState("");
+  const [paymentComment, setPaymentComment] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +113,7 @@ export default function ReceivePaymentsPage() {
           receipt_type: receiptType,
           payment_mode: mode,
           reference_number: reference,
+          payment_comment: paymentComment,
           attachment_path: attachmentPath,
           attachment_name: attachmentName,
           received_at: date,
@@ -310,6 +312,16 @@ export default function ReceivePaymentsPage() {
             className="input mt-1 w-full"
             value={reference}
             onChange={(event) => setReference(event.target.value)}
+          />
+        </label>
+        <label>
+          <span className="label">Payment comments (optional)</span>
+          <textarea
+            className="input mt-1 w-full"
+            rows={2}
+            value={paymentComment}
+            onChange={(event) => setPaymentComment(event.target.value)}
+            placeholder="Add a note about this payment"
           />
         </label>
         <label>

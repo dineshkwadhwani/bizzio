@@ -13,6 +13,7 @@ export default function InvoiceDetailPage() {
   const [receiptData, setReceiptData] = useState<any>(null);
   const [paymentMode, setPaymentMode] = useState("cash");
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [paymentComment, setPaymentComment] = useState("");
   const [amountReceived, setAmountReceived] = useState("");
   const [tdsAmount, setTdsAmount] = useState("0");
   const [discountAmount, setDiscountAmount] = useState("0");
@@ -135,6 +136,7 @@ export default function InvoiceDetailPage() {
         invoice_id: data.invoice.id,
         payment_mode: paymentMode,
         reference_number: referenceNumber
+        ,payment_comment: paymentComment
         ,amount_received: Number(amountReceived || data.invoice.total_amount),
         tds_amount: Number(tdsAmount || 0),
         discount_amount: Number(discountAmount || 0),
@@ -153,6 +155,7 @@ export default function InvoiceDetailPage() {
     setReceiptData(json.receipt);
     setData((current: any) => ({ ...current, invoice: { ...current.invoice, status: json.invoice?.status || "paid" }, lineItems: current.lineItems || [], advanceApplications: current.advanceApplications || [] }));
     setReferenceNumber("");
+    setPaymentComment("");
   }
 
   async function sendSalesInvoiceEmail() {
@@ -298,6 +301,7 @@ export default function InvoiceDetailPage() {
                 <label className="label">Reference</label>
                 <input className="input" value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} placeholder="Cheque number / UTR / notes" />
               </div>
+              <div className="md:col-span-2"><label className="label">Payment comments (optional)</label><textarea className="input" rows={2} value={paymentComment} onChange={(e) => setPaymentComment(e.target.value)} placeholder="Add a note about this payment" /></div>
               <div><label className="label">Balance due after advance (₹)</label><input className="input" value={Math.max(0, Number(data.invoice.total_amount) - Number(data.advanceApplications?.reduce((sum: number, application: any) => sum + Number(application.amount || 0), 0) || 0)).toFixed(2)} readOnly /></div>
               <div><label className="label">GST amount (₹)</label><input className="input" value={Number(data.invoice.gst_amount || 0).toFixed(2)} readOnly /></div>
               <div><label className="label">TDS deducted (₹)</label><input className="input" type="number" min="0" max={Math.max(0, Number(data.invoice.total_amount) - Number(data.advanceApplications?.reduce((sum: number, application: any) => sum + Number(application.amount || 0), 0) || 0))} step="0.01" value={tdsAmount} onChange={(e) => { setTdsAmount(e.target.value); setDiscountAmount("0"); setAmountReceived((Math.max(0, Number(data.invoice.total_amount) - Number(data.advanceApplications?.reduce((sum: number, application: any) => sum + Number(application.amount || 0), 0) || 0) - Number(e.target.value || 0))).toFixed(2)); }} /></div>
