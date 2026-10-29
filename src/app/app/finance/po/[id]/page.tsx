@@ -519,19 +519,47 @@ export default function PurchaseOrderDetailPage() {
                             min="0.01"
                             step="0.01"
                             value={line.amount}
-                            onChange={(e) =>
-                              setPaymentLines((old) =>
-                                old.map((item) =>
+                            onChange={(e) => {
+                              const nextAmount = e.target.value;
+                              const enteredAmount = Number(nextAmount || 0);
+                              setPaymentLines((old) => {
+                                const lineIndex = old.findIndex(
+                                  (item) => item.id === line.id,
+                                );
+                                const alreadySettled = old
+                                  .slice(0, lineIndex)
+                                  .reduce(
+                                    (sum, item) =>
+                                      sum +
+                                      Number(item.amount || 0) -
+                                      Number(item.roundingOffAmount || 0),
+                                    0,
+                                  );
+                                const lineBalance = Math.max(
+                                  0,
+                                  balanceDue - alreadySettled,
+                                );
+                                const automaticRounding =
+                                  enteredAmount > lineBalance
+                                    ? (enteredAmount - lineBalance).toFixed(2)
+                                    : "0";
+                                return old.map((item) =>
                                   item.id === line.id
-                                    ? { ...item, amount: e.target.value }
+                                    ? {
+                                        ...item,
+                                        amount: nextAmount,
+                                        roundingOffAmount: automaticRounding,
+                                      }
                                     : item,
-                                ),
-                              )
-                            }
+                                );
+                              });
+                            }}
                           />
                         </label>
                         <label>
-                          <span className="label">Rounding off</span>
+                          <span className="label">
+                            Rounding off (auto-calculated)
+                          </span>
                           <input
                             className="input"
                             type="number"

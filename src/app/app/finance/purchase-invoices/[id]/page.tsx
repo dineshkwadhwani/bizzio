@@ -316,19 +316,47 @@ export default function PurchaseInvoiceDetailPage() {
                         min="0.01"
                         step="0.01"
                         value={line.amount}
-                        onChange={(e) =>
-                          setPaymentLines((current) =>
-                            current.map((item) =>
+                        onChange={(e) => {
+                          const nextAmount = e.target.value;
+                          const enteredAmount = Number(nextAmount || 0);
+                          setPaymentLines((current) => {
+                            const lineIndex = current.findIndex(
+                              (item) => item.id === line.id,
+                            );
+                            const alreadySettled = current
+                              .slice(0, lineIndex)
+                              .reduce(
+                                (sum, item) =>
+                                  sum +
+                                  Number(item.amount || 0) -
+                                  Number(item.roundingOffAmount || 0),
+                                0,
+                              );
+                            const lineBalance = Math.max(
+                              0,
+                              balance - alreadySettled,
+                            );
+                            const automaticRounding =
+                              enteredAmount > lineBalance
+                                ? (enteredAmount - lineBalance).toFixed(2)
+                                : "0";
+                            return current.map((item) =>
                               item.id === line.id
-                                ? { ...item, amount: e.target.value }
+                                ? {
+                                    ...item,
+                                    amount: nextAmount,
+                                    roundingOffAmount: automaticRounding,
+                                  }
                                 : item,
-                            ),
-                          )
-                        }
+                            );
+                          });
+                        }}
                       />
                     </label>
                     <label className="block">
-                      <span className="label">Rounding off</span>
+                      <span className="label">
+                        Rounding off (auto-calculated)
+                      </span>
                       <input
                         className="input mt-1 w-full"
                         type="number"
