@@ -52,12 +52,38 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true }); // already processed / not applicable
   }
 
-  await admin.from("payments").insert({
-    company_id: companyId,
-    razorpay_payment_id: event.payload?.payment?.entity?.id,
-    amount: (event.payload?.payment?.entity?.amount ?? 0) / 100,
-    status: "success"
-  });
+  const paymentEntity = event.payload?.payment?.entity;
+  const paymentId = paymentEntity?.id;
+  const paymentAmount = Number(paymentEntity?.amount ?? 0) / 100;
+  const paymentCurrency = paymentEntity?.currency;
+  const paymentLinkAmount = Number(event.payload?.payment_link?.entity?.amount ?? 0) / 100;
+  const { data: plan } = await admin.from("subscription_plans").select("offer_price").eq("id", company.plan_id).maybeSingle();
+  const expectedAmount = paymentLinkAmount > 0 ? paymentLinkAmount : Number(plan?.offer_price ?? 0);
+  if (!paymentId || paymentCurrency !== "INR" || paymentAmount <= 0 || expectedAmount <= 0 || paymentAmount !== expectedAmount) {
+    return NextResponse.json({ error: "Payment Link amount or currency could not be verified" }, { status: 400 });
+  }
+
+  const { data: existingPayment } = await admin
+    .from("payments")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("razorpay_order_id", event.payload?.payment_link?.entity?.id)
+    .maybeSingle();
+  if (existingPayment) {
+    await admin.from("payments").update({
+      razorpay_payment_id: paymentId,
+      amount: paymentAmount,
+      status: "success"
+    }).eq("id", existingPayment.id);
+  } else {
+    await admin.from("payments").insert({
+      company_id: companyId,
+      razorpay_order_id: event.payload?.payment_link?.entity?.id ?? null,
+      razorpay_payment_id: paymentId,
+      amount: paymentAmount,
+      status: "success"
+    });
+  }
 
   const { data: userData, error: createErr } = await admin.auth.admin.createUser({
     email: company.contact_email,

@@ -1,11 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
+import { requireRole } from "@/lib/auth-guard";
 import { Users, CheckSquare, Wallet, FileWarning } from "lucide-react";
 
 export const revalidate = 0;
 
 export default async function AdminDashboard() {
-  const supabase = createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const guard = await requireRole("company_admin");
+  const supabase = guard.supabase;
+  const companyId = guard.profile.company_id;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
 
   const [
     { count: headcount },
@@ -14,15 +17,17 @@ export default async function AdminDashboard() {
     { count: readyForPayment },
     { count: unpaidInvoices }
   ] = await Promise.all([
-    supabase.from("employees").select("id", { count: "exact", head: true }).eq("status", "active"),
-    supabase.from("attendance").select("status").eq("date", today),
-    supabase.from("leave_requests").select("id", { count: "exact", head: true }).in("status", ["submitted", "pending_level2"]),
-    supabase.from("expense_claims").select("id", { count: "exact", head: true }).eq("status", "ready_for_payment"),
-    supabase.from("invoices").select("id", { count: "exact", head: true }).neq("status", "paid")
+    supabase.from("employees").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "active"),
+    supabase.from("attendance").select("status").eq("company_id", companyId).eq("date", today),
+    supabase.from("leave_requests").select("id", { count: "exact", head: true }).eq("company_id", companyId).in("status", ["submitted", "pending_level2"]),
+    supabase.from("expense_claims").select("id", { count: "exact", head: true }).eq("company_id", companyId).eq("status", "ready_for_payment"),
+    supabase.from("invoices").select("id", { count: "exact", head: true }).eq("company_id", companyId).neq("status", "paid")
   ]);
 
   const marked = todayAttendance ?? [];
-  const present = headcount ? headcount - marked.filter((a) => a.status === "absent").length : 0;
+  const present = headcount
+    ? headcount - marked.filter((a) => ["absent", "on_leave", "holiday"].includes(a.status)).length
+    : 0;
   const absent = marked.filter((a) => a.status === "absent").length;
   const onLeave = marked.filter((a) => a.status === "on_leave").length;
 

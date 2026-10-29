@@ -330,9 +330,9 @@ export const emailTemplates = {
     subject: "Payment received — set your Bizzio Online password",
     html: `<p>Payment received, your account is now active.</p><p><a href="${setPasswordUrl}">Set your password to get started</a></p>`
   }),
-  companyRejected: (reason: string) => ({
+  companyRejected: (reason: string, paymentRefunded = false) => ({
     subject: "Update on your Bizzio Online application",
-    html: `<p>Unfortunately your application was not approved.</p><p><strong>Reason:</strong> ${reason}</p>`
+    html: `<p>Unfortunately your application was not approved.</p><p><strong>Reason:</strong> ${reason}</p>${paymentRefunded ? "<p>Your registration payment has been refunded to the original payment method. The refund may take additional time to appear, depending on your bank or payment provider.</p>" : ""}`
   }),
   passwordReset: (resetUrl: string) => ({
     subject: "Reset your Bizzio Online password",

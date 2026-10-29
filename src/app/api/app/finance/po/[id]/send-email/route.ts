@@ -43,7 +43,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const template = emailTemplates.purchaseOrder({
       companyName: company.name,
       logoUrl: company.logo_url,
-      recipientName: vendor.contact_person || vendor.name,
+      recipientName: vendor.name,
       documentNumber: po.po_number,
       title: po.title,
       date: new Intl.DateTimeFormat("en-IN", { dateStyle: "long" }).format(new Date(po.created_at)),

@@ -6,9 +6,10 @@ const SECTIONS = [
   { title: "2. Description of Service", body: "Bizzio Online provides attendance, reporting, accounting, and expense-reimbursement tools for registered companies and their employees." },
   { title: "3. User Obligations", body: "You are responsible for the accuracy of data entered and for maintaining the confidentiality of your login credentials." },
   { title: "4. Data & Privacy", body: "See our Privacy Policy for details on how company and employee data is stored and used." },
-  { title: "5. Limitation of Liability", body: "Bizzio Online is provided on an as-is basis. [Insert liability terms reviewed by legal counsel.]" },
-  { title: "6. Termination", body: "[Insert termination conditions reviewed by legal counsel.]" },
-  { title: "7. Governing Law", body: "[Insert governing jurisdiction reviewed by legal counsel.]" }
+  { title: "5. Registration Review and Refunds", body: "All company registrations are subject to review and approval by the Bizzio Online Platform Administrator. For a paid plan, payment may be collected before the review is completed. If the registration is rejected, Bizzio Online will initiate a full refund of the registration amount to the original payment method. The time for the refund to appear depends on the payment provider or bank. No account access is provided until the registration is approved and the company is activated." },
+  { title: "6. Limitation of Liability", body: "Bizzio Online is provided on an as-is basis. [Insert liability terms reviewed by legal counsel.]" },
+  { title: "7. Termination", body: "[Insert termination conditions reviewed by legal counsel.]" },
+  { title: "8. Governing Law", body: "[Insert governing jurisdiction reviewed by legal counsel.]" }
 ];
 
 export default function TermsPage() {

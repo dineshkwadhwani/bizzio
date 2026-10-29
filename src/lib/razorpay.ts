@@ -75,3 +75,12 @@ export function verifyWebhookSignature(rawBody: string, signature: string) {
     .digest("hex");
   return expected === signature;
 }
+
+export async function refundRegistrationPayment(paymentId: string, amountInRupees: number) {
+  const razorpay = getRazorpay();
+  return razorpay.payments.refund(paymentId, {
+    amount: Math.round(amountInRupees * 100),
+    speed: "normal",
+    notes: { reason: "Company registration rejected by Platform Admin" }
+  });
+}
