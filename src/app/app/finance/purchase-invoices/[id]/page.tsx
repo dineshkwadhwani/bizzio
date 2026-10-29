@@ -141,10 +141,13 @@ export default function PurchaseInvoiceDetailPage() {
       setPaymentLines([]);
       await load();
     } catch (postError) {
+      const errorMessage =
+        postError instanceof Error ? postError.message : null;
       setError(
         (postError as DOMException).name === "AbortError"
           ? "Posting timed out. Check the payment history before trying again."
-          : "Unable to confirm the payment. Check the payment history before trying again.",
+          : errorMessage ||
+              "Unable to confirm the payment. Check the payment history before trying again.",
       );
     } finally {
       setSaving(false);
