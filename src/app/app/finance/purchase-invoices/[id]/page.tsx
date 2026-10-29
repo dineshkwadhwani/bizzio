@@ -354,13 +354,12 @@ export default function PurchaseInvoiceDetailPage() {
                       />
                     </label>
                     <label className="block">
-                      <span className="label">
-                        Rounding off (auto-calculated)
-                      </span>
+                      <span className="label">Rounding off</span>
                       <input
                         className="input mt-1 w-full"
                         type="number"
                         step="0.01"
+                        disabled
                         value={line.roundingOffAmount}
                         onChange={(e) =>
                           setPaymentLines((current) =>

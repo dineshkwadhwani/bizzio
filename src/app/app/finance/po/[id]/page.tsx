@@ -557,13 +557,12 @@ export default function PurchaseOrderDetailPage() {
                           />
                         </label>
                         <label>
-                          <span className="label">
-                            Rounding off (auto-calculated)
-                          </span>
+                          <span className="label">Rounding off</span>
                           <input
                             className="input"
                             type="number"
                             step="0.01"
+                            disabled
                             value={line.roundingOffAmount}
                             onChange={(e) =>
                               setPaymentLines((old) =>
