@@ -40,8 +40,8 @@ export default async function PurchasePaymentsPage() {
   const invoiceIds = (purchaseInvoices ?? []).map((invoice) => invoice.id);
   const [{ data: payments }, { data: lines }, { data: invoicePayments }] = await Promise.all([
     orderIds.length
-      ? supabase.from("purchase_order_payments").select("purchase_order_id, amount").in("purchase_order_id", orderIds)
-      : Promise.resolve({ data: [] as { purchase_order_id: string; amount: number }[] }),
+      ? supabase.from("purchase_order_payments").select("purchase_order_id, amount, rounding_off_amount").in("purchase_order_id", orderIds)
+      : Promise.resolve({ data: [] as { purchase_order_id: string; amount: number; rounding_off_amount: number }[] }),
     orderIds.length
       ? supabase.from("po_line_items").select("po_id, line_total").in("po_id", orderIds)
       : Promise.resolve({ data: [] as { po_id: string; line_total: number }[] }),
@@ -53,7 +53,7 @@ export default async function PurchasePaymentsPage() {
   const totals = new Map<string, number>();
   for (const line of lines ?? []) totals.set(line.po_id, (totals.get(line.po_id) ?? 0) + Number(line.line_total ?? 0));
   const paidTotals = new Map<string, number>();
-  for (const payment of payments ?? []) paidTotals.set(payment.purchase_order_id, (paidTotals.get(payment.purchase_order_id) ?? 0) + Number(payment.amount ?? 0));
+  for (const payment of payments ?? []) paidTotals.set(payment.purchase_order_id, (paidTotals.get(payment.purchase_order_id) ?? 0) + Number(payment.amount ?? 0) - Number(payment.rounding_off_amount ?? 0));
   const invoicePaidTotals = new Map<string, number>();
   for (const payment of invoicePayments ?? []) invoicePaidTotals.set(payment.purchase_invoice_id, (invoicePaidTotals.get(payment.purchase_invoice_id) ?? 0) + Number(payment.amount ?? 0));
   const unpaidOrders = (purchaseOrders ?? []).map((order: any) => ({ ...order, balance: Math.max(0, (totals.get(order.id) ?? 0) - (paidTotals.get(order.id) ?? 0)) })).filter((order) => order.balance > 0.005);

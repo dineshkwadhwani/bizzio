@@ -5,16 +5,21 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+type PaymentDraft = {
+  id: string;
+  mode: string;
+  amount: string;
+  roundingOffAmount: string;
+  reference: string;
+  comment: string;
+  date: string;
+  document: File | null;
+};
+
 export default function PurchaseInvoiceDetailPage() {
   const params = useParams();
   const [data, setData] = useState<any>(null);
-  const [mode, setMode] = useState("bank_transfer");
-  const [amount, setAmount] = useState("");
-  const [roundingOffAmount, setRoundingOffAmount] = useState("0");
-  const [reference, setReference] = useState("");
-  const [paymentComment, setPaymentComment] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [paymentDocument, setPaymentDocument] = useState<File | null>(null);
+  const [paymentLines, setPaymentLines] = useState<PaymentDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   async function load() {
@@ -29,7 +34,9 @@ export default function PurchaseInvoiceDetailPage() {
           s + Number(p.amount || 0) - Number(p.rounding_off_amount || 0),
         0,
       );
-      setAmount(Math.max(0, Number(j.invoice.total_amount) - paid).toFixed(2));
+      if (paid >= Number(j.invoice.total_amount) - 0.005) {
+        setPaymentLines([]);
+      }
     } else setError(j.error || "Unable to load purchase invoice.");
   }
   useEffect(() => {
@@ -52,55 +59,86 @@ export default function PurchaseInvoiceDetailPage() {
     return { path: result.data.path, name: file.name };
   }
   async function pay() {
+    if (!data || paymentLines.length === 0) return;
+    const settled = (data.payments || []).reduce(
+      (s: number, p: any) =>
+        s + Number(p.amount || 0) - Number(p.rounding_off_amount || 0),
+      0,
+    );
+    const currentBalance = Math.max(
+      0,
+      Number(data.invoice.total_amount) - settled,
+    );
+    const draftSettlement = paymentLines.reduce(
+      (s, line) =>
+        s + Number(line.amount || 0) - Number(line.roundingOffAmount || 0),
+      0,
+    );
+    if (
+      paymentLines.some(
+        (line) =>
+          Number(line.amount || 0) <= 0 ||
+          Number(line.amount || 0) - Number(line.roundingOffAmount || 0) <= 0,
+      )
+    ) {
+      setError("Each payment amount must be greater than zero.");
+      return;
+    }
+    if (draftSettlement > currentBalance + 0.005) {
+      setError("The payment lines exceed the remaining invoice balance.");
+      return;
+    }
     setSaving(true);
     setError(null);
-    const paymentId = crypto.randomUUID();
-    let document = { path: null as string | null, name: null as string | null };
-    if (paymentDocument) {
-      try {
-        document = await uploadPaymentDocument(paymentDocument, paymentId);
-      } catch (uploadError) {
-        setSaving(false);
-        setError(
-          `The payment document could not be uploaded: ${(uploadError as Error).message}`,
-        );
-        return;
-      }
-    }
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 30000);
     try {
-      const r = await fetch(
-        `/api/app/finance/purchase-invoices/${params.id}/payment`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            payment_id: paymentId,
-            payment_mode: mode,
-            amount: Number(amount),
-            rounding_off_amount: Number(roundingOffAmount || 0),
-            reference_number: reference,
-            payment_comment: paymentComment,
-            paid_at: date,
-            attachment_path: document.path,
-            attachment_name: document.name,
-          }),
-        },
-      );
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        if (document.path)
-          await createClient()
-            .storage.from("transaction-documents")
-            .remove([document.path]);
-        setError(
-          typeof j.error === "string" ? j.error : "Unable to record payment.",
-        );
-        return;
+      for (const line of paymentLines) {
+        const paymentId = crypto.randomUUID();
+        let document = {
+          path: null as string | null,
+          name: null as string | null,
+        };
+        if (line.document) {
+          document = await uploadPaymentDocument(line.document, paymentId);
+        }
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 30000);
+        try {
+          const r = await fetch(
+            "/api/app/finance/purchase-invoices/" + params.id + "/payment",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: controller.signal,
+              body: JSON.stringify({
+                payment_id: paymentId,
+                payment_mode: line.mode,
+                amount: Number(line.amount),
+                rounding_off_amount: Number(line.roundingOffAmount || 0),
+                reference_number: line.reference,
+                payment_comment: line.comment,
+                paid_at: line.date,
+                attachment_path: document.path,
+                attachment_name: document.name,
+              }),
+            },
+          );
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            if (document.path)
+              await createClient()
+                .storage.from("transaction-documents")
+                .remove([document.path]);
+            throw new Error(
+              typeof j.error === "string"
+                ? j.error
+                : "Unable to record payment.",
+            );
+          }
+        } finally {
+          window.clearTimeout(timeout);
+        }
       }
-      setPaymentDocument(null);
+      setPaymentLines([]);
       await load();
     } catch (postError) {
       setError(
@@ -109,7 +147,6 @@ export default function PurchaseInvoiceDetailPage() {
           : "Unable to confirm the payment. Check the payment history before trying again.",
       );
     } finally {
-      window.clearTimeout(timeout);
       setSaving(false);
     }
   }
@@ -232,107 +269,207 @@ export default function PurchaseInvoiceDetailPage() {
                 type="button"
                 className="btn-secondary text-sm"
                 onClick={() => {
-                  setAmount(balance.toFixed(2));
-                  setRoundingOffAmount("0");
-                  setReference("");
-                  setPaymentComment("");
-                  setPaymentDocument(null);
+                  setPaymentLines((current) => [
+                    ...current,
+                    {
+                      id: crypto.randomUUID(),
+                      mode: "bank_transfer",
+                      amount: current.length === 0 ? balance.toFixed(2) : "",
+                      roundingOffAmount: "0",
+                      reference: "",
+                      comment: "",
+                      date: new Date().toISOString().slice(0, 10),
+                      document: null,
+                    },
+                  ]);
                 }}
               >
                 Add Payment
               </button>
             </div>
-            <div className="mt-3 grid gap-3 md:grid-cols-4">
-              <label className="block">
-                <span className="label">Amount paid</span>
-                <input
-                  className="input mt-1 w-full"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className="label">Rounding off</span>
-                <input
-                  className="input mt-1 w-full"
-                  type="number"
-                  step="0.01"
-                  value={roundingOffAmount}
-                  onChange={(e) => setRoundingOffAmount(e.target.value)}
-                  placeholder="0.00"
-                />
-              </label>
-              <label className="block">
-                <span className="label">Payment mode</span>
-                <select
-                  className="input mt-1 w-full"
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value)}
+            <div className="mt-3 space-y-4">
+              {paymentLines.map((line, index) => (
+                <div
+                  key={line.id}
+                  className="rounded-lg border border-ink-200 bg-white p-4"
                 >
-                  <option value="bank_transfer">Bank Transfer</option>
-                  <option value="cash">Cash</option>
-                  <option value="cheque">Cheque</option>
-                </select>
-              </label>
-              <label className="block">
-                <span className="label">Paid date</span>
-                <input
-                  className="input mt-1 w-full"
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                />
-              </label>
-              <label className="block md:col-span-2">
-                <span className="label">Reference</span>
-                <input
-                  className="input mt-1 w-full"
-                  placeholder="Reference"
-                  value={reference}
-                  onChange={(e) => setReference(e.target.value)}
-                />
-              </label>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-medium">Payment {index + 1}</h3>
+                    <button
+                      type="button"
+                      className="text-sm text-red-600"
+                      onClick={() =>
+                        setPaymentLines((current) =>
+                          current.filter((item) => item.id !== line.id),
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-3 md:grid-cols-4">
+                    <label className="block">
+                      <span className="label">Amount paid</span>
+                      <input
+                        className="input mt-1 w-full"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={line.amount}
+                        onChange={(e) =>
+                          setPaymentLines((current) =>
+                            current.map((item) =>
+                              item.id === line.id
+                                ? { ...item, amount: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="label">Rounding off</span>
+                      <input
+                        className="input mt-1 w-full"
+                        type="number"
+                        step="0.01"
+                        value={line.roundingOffAmount}
+                        onChange={(e) =>
+                          setPaymentLines((current) =>
+                            current.map((item) =>
+                              item.id === line.id
+                                ? { ...item, roundingOffAmount: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="label">Payment mode</span>
+                      <select
+                        className="input mt-1 w-full"
+                        value={line.mode}
+                        onChange={(e) =>
+                          setPaymentLines((current) =>
+                            current.map((item) =>
+                              item.id === line.id
+                                ? { ...item, mode: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      >
+                        <option value="bank_transfer">Bank Transfer</option>
+                        <option value="cash">Cash</option>
+                        <option value="cheque">Cheque</option>
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="label">Paid date</span>
+                      <input
+                        className="input mt-1 w-full"
+                        type="date"
+                        value={line.date}
+                        onChange={(e) =>
+                          setPaymentLines((current) =>
+                            current.map((item) =>
+                              item.id === line.id
+                                ? { ...item, date: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    <label className="block md:col-span-2">
+                      <span className="label">Reference</span>
+                      <input
+                        className="input mt-1 w-full"
+                        placeholder="Reference"
+                        value={line.reference}
+                        onChange={(e) =>
+                          setPaymentLines((current) =>
+                            current.map((item) =>
+                              item.id === line.id
+                                ? { ...item, reference: e.target.value }
+                                : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-3 block">
+                    <span className="label">Payment comments (optional)</span>
+                    <textarea
+                      className="input mt-1 w-full"
+                      rows={3}
+                      value={line.comment}
+                      onChange={(e) =>
+                        setPaymentLines((current) =>
+                          current.map((item) =>
+                            item.id === line.id
+                              ? { ...item, comment: e.target.value }
+                              : item,
+                          ),
+                        )
+                      }
+                      placeholder="Add a note about this payment"
+                    />
+                  </label>
+                  <label className="mt-3 block">
+                    <span className="label">
+                      Payment reference document (optional)
+                    </span>
+                    <input
+                      className="input"
+                      type="file"
+                      accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                      onChange={(e) =>
+                        setPaymentLines((current) =>
+                          current.map((item) =>
+                            item.id === line.id
+                              ? {
+                                  ...item,
+                                  document: e.target.files?.[0] || null,
+                                }
+                              : item,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              ))}
             </div>
-            <p className="mt-2 text-xs text-ink-500">
-              Amount paid minus rounding off must equal the invoice balance. Use
-              a positive amount when paying extra, or a negative amount when
-              paying less.
-            </p>
-            <label className="mt-3 block">
-              <span className="label">Payment comments (optional)</span>
-              <textarea
-                className="input mt-1 w-full"
-                rows={3}
-                value={paymentComment}
-                onChange={(e) => setPaymentComment(e.target.value)}
-                placeholder="Add a note about this payment"
-              />
-            </label>
-            <label className="mt-3 block">
-              <span className="label">
-                Payment reference document (optional)
-              </span>
-              <input
-                className="input"
-                type="file"
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
-                onChange={(e) =>
-                  setPaymentDocument(e.target.files?.[0] || null)
-                }
-              />
-              <p className="mt-1 text-xs text-ink-500">
-                Attach an invoice, email, receipt, or another proof of payment.
+            {paymentLines.length > 0 && (
+              <p className="mt-3 text-xs text-ink-500">
+                Planned settlement: ₹
+                {paymentLines
+                  .reduce(
+                    (sum, line) =>
+                      sum +
+                      Number(line.amount || 0) -
+                      Number(line.roundingOffAmount || 0),
+                    0,
+                  )
+                  .toFixed(2)}{" "}
+                of ₹{balance.toFixed(2)} remaining. Rounding off is applied to
+                the final payment.
               </p>
-            </label>
+            )}
             <button
               className="btn-primary mt-3"
-              disabled={saving || !amount}
+              disabled={saving || paymentLines.length === 0}
               onClick={() => void pay()}
             >
-              {saving ? "Posting…" : "Record Payment"}
+              {saving
+                ? "Posting…"
+                : "Record " +
+                  (paymentLines.length || "") +
+                  " Payment" +
+                  (paymentLines.length === 1 ? "" : "s")}
             </button>
           </div>
         )}
