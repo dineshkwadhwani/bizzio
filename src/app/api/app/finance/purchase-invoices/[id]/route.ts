@@ -99,7 +99,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
       supabase.from("purchase_invoice_payments").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId),
       supabase.from("purchase_invoice_line_items").select("*").eq("purchase_invoice_id", params.id).eq("company_id", companyId).order("id")
     ]);
-    const paidTotal = (payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount || 0), 0);
+    const paidTotal = (payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.amount || 0) - Number(payment.rounding_off_amount || 0), 0);
     if (!canEditInvoices(guard.employee as any)) return NextResponse.json({ error: "The Edit invoices permission is required." }, { status: 403 });
     const financeManager = isFinanceManager(guard.employee as any);
     if (invoice.status === "paid" && !financeManager) return NextResponse.json({ error: "Paid invoices can only be edited by a finance manager." }, { status: 403 });
@@ -178,7 +178,10 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const gst = Number(calculated.reduce((sum, line) => sum + line.cgst_amount + line.sgst_amount + line.igst_amount, 0).toFixed(2));
     const total = Number((base + gst).toFixed(2));
     const editedPaidTotal = parsed.data.payments
-      ? (payments ?? []).reduce((sum: number, payment: any) => sum + Number(parsed.data.payments?.find((edited) => edited.id === payment.id)?.amount ?? payment.amount ?? 0), 0)
+      ? (payments ?? []).reduce((sum: number, payment: any) => {
+        const edited = parsed.data.payments?.find((item) => item.id === payment.id);
+        return sum + Number(edited?.amount ?? payment.amount ?? 0) - Number(payment.rounding_off_amount || 0);
+      }, 0)
       : paidTotal;
 
     const { data: inputGst } = await supabase.from("account_heads").select("id").eq("company_id", companyId).eq("name", "Paid GST").eq("type", "asset").eq("is_active", true).single();

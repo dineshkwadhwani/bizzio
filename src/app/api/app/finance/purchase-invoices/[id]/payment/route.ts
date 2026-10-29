@@ -14,11 +14,15 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const supabase = createClient();
     const { data: invoice } = await supabase.from("purchase_invoices").select("id,invoice_number,total_amount,status,vendor_id,vendor:vendors(party_account_head_id)").eq("id", params.id).eq("company_id", guard.employee.company_id).single();
     if (!invoice || ["draft", "cancelled"].includes(invoice.status)) return NextResponse.json({ error: "The purchase invoice is not available for payment." }, { status: 400 });
-    const { data: payments } = await supabase.from("purchase_invoice_payments").select("amount").eq("purchase_invoice_id", params.id).eq("company_id", guard.employee.company_id);
-    const paid = (payments ?? []).reduce((s, p) => s + Number(p.amount || 0), 0);
+    const { data: payments } = await supabase.from("purchase_invoice_payments").select("amount, rounding_off_amount").eq("purchase_invoice_id", params.id).eq("company_id", guard.employee.company_id);
+    const paid = (payments ?? []).reduce((s, p) => s + Number(p.amount || 0) - Number(p.rounding_off_amount || 0), 0);
     const remaining = Number((Number(invoice.total_amount) - paid).toFixed(2));
     const roundingOffAmount = Number(parsed.data.rounding_off_amount.toFixed(2));
-    if (Math.abs(parsed.data.amount - remaining - roundingOffAmount) > 0.005) return NextResponse.json({ error: `Payment amount and rounding off must reconcile to the balance of ₹${remaining.toFixed(2)}.` }, { status: 400 });
+    if (parsed.data.amount <= remaining + 0.005) {
+      if (Math.abs(roundingOffAmount) > 0.005) return NextResponse.json({ error: "Rounding off can only be used on the final payment when the amount paid exceeds the remaining balance." }, { status: 400 });
+    } else if (Math.abs(parsed.data.amount - remaining - roundingOffAmount) > 0.005) {
+      return NextResponse.json({ error: `Payment amount and rounding off must reconcile to the balance of ₹${remaining.toFixed(2)}.` }, { status: 400 });
+    }
     const payable = (invoice.vendor as any)?.party_account_head_id;
     if (!payable) return NextResponse.json({ error: "Vendor payable account is missing." }, { status: 400 });
     const [paymentAccount, roundingAccount] = await Promise.all([
@@ -29,7 +33,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     if (roundingOffAmount !== 0 && (roundingAccount.error || !roundingAccount.data)) return NextResponse.json({ error: "The Rounding Off account is missing or inactive." }, { status: 400 });
     const paymentId = parsed.data.payment_id || crypto.randomUUID();
     const journalLines: Array<{ account_head_id: string; amount: number; entry_type: "debit" | "credit"; label: string }> = [
-      { account_head_id: payable, amount: remaining, entry_type: "debit", label: "Vendor Payable" }
+      { account_head_id: payable, amount: Math.min(parsed.data.amount, remaining), entry_type: "debit", label: "Vendor Payable" }
     ];
     if (roundingOffAmount > 0) journalLines.push({ account_head_id: roundingAccount.data!.id, amount: roundingOffAmount, entry_type: "debit", label: "Rounding Off" });
     if (roundingOffAmount < 0) journalLines.push({ account_head_id: roundingAccount.data!.id, amount: Math.abs(roundingOffAmount), entry_type: "credit", label: "Rounding Off" });
